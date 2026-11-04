@@ -1,0 +1,11 @@
+/bin/
+/dist/
+/web/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep
+*.db
+*.db-*
+rocketsled.yaml
+.env
+coverage.out
+.DS_Store

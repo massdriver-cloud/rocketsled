@@ -1,0 +1,17 @@
+image:
+  repository: ghcr.io/massdriver-cloud/rocketsled-hello
+  tag: latest
+replicas: 1
+port: 8080
+size: small
+log_level: info
+health_check_path: /
+ingress:
+  enabled: false
+  host: ""
+commonLabels: {}
+envs: {}
+secrets: {}
+postgres: {}
+mariadb: {}
+bucket: {}

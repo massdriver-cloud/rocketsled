@@ -1,0 +1,96 @@
+name: aws-vpc
+description: >-
+  A VPC sized for an EKS cluster: public and private subnets across two or three
+  availability zones, an internet gateway, and NAT for the private side.
+source_url: https://github.com/massdriver-cloud/rocketsled/tree/main/example/catalog/aws-eks-3-tier/bundles/aws-vpc
+version: 0.1.0
+
+params:
+  examples:
+    - __name: Development (2 AZs, one NAT gateway)
+      region: us-west-2
+      cidr: "10.0.0.0/16"
+      availability_zones: 2
+      nat_gateways: single
+      enable_flow_logs: false
+    - __name: Production (3 AZs, NAT per AZ, flow logs)
+      region: us-west-2
+      cidr: "10.20.0.0/16"
+      availability_zones: 3
+      nat_gateways: per_az
+      enable_flow_logs: true
+  required:
+    - region
+    - cidr
+    - availability_zones
+    - nat_gateways
+  properties:
+    region:
+      type: string
+      title: Region
+      description: AWS region. Cannot change after creation.
+      default: us-west-2
+      $md.immutable: true
+      examples:
+        - us-west-2
+        - us-east-1
+        - eu-west-1
+    cidr:
+      type: string
+      title: Network CIDR
+      description: IPv4 range for the whole VPC. Each AZ gets one public and one private /20 carved from it.
+      default: "10.0.0.0/16"
+      pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/(1[6-9]|2[0-2])$
+      message:
+        pattern: "Use an IPv4 CIDR between /16 and /22, like 10.0.0.0/16."
+      $md.immutable: true
+    availability_zones:
+      type: integer
+      title: Availability zones
+      description: How many AZs to spread subnets across. EKS needs at least two.
+      default: 2
+      minimum: 2
+      maximum: 3
+      $md.immutable: true
+    nat_gateways:
+      type: string
+      title: NAT gateways
+      description: How private subnets reach the internet. One gateway is cheaper; one per AZ survives an AZ outage.
+      default: single
+      oneOf:
+        - const: none
+          title: None — private subnets have no internet egress
+        - const: single
+          title: One shared gateway
+        - const: per_az
+          title: One gateway per AZ
+    enable_flow_logs:
+      type: boolean
+      title: Enable flow logs
+      description: Send VPC flow logs to CloudWatch for 30 days.
+      default: false
+
+dependencies:
+  aws_authentication:
+    resource_type: aws-iam-role@0.0.0
+    required: true
+
+resources:
+  network:
+    resource_type: virtual-network@0.0.0
+    required: true
+
+steps:
+  - path: src
+    provisioner: opentofu:1.10
+
+ui:
+  ui:order:
+    - region
+    - cidr
+    - availability_zones
+    - nat_gateways
+    - enable_flow_logs
+    - "*"
+  availability_zones:
+    ui:widget: updown

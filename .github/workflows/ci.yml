@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify generated mocks are current
+        run: |
+          go generate ./...
+          git diff --exit-code -- internal/domain/mocks
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
+  example:
+    name: Example app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example/hello-world
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: example/hello-world/go.mod
+          cache-dependency-path: example/hello-world/go.sum
+      - run: go test ./...
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Lambda image
+        run: docker build --platform linux/amd64 --provenance=false --sbom=false -t hello-world:ci .
+
+  catalog:
+    name: Example catalog
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example/catalog/aws-eks-3-tier
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint and template Helm bundles
+        run: |
+          for chart in bundles/*/chart; do
+            helm lint "$chart"
+            helm template test "$chart" > /dev/null
+          done
+      - uses: opentofu/setup-opentofu@v1
+      - name: Validate OpenTofu bundles
+        # mass bundle build needs an organization to resolve resource types, so CI
+        # generates stand-in variables and validates syntax only.
+        run: |
+          pip install --quiet pyyaml
+          for b in $(for d in bundles/*/src; do basename "$(dirname "$d")"; done); do
+            python3 - "$b" <<'PY'
+          import sys, yaml
+          b = sys.argv[1]
+          d = yaml.safe_load(open(f"bundles/{b}/massdriver.yaml"))
+          names = list((d.get("params", {}).get("properties") or {}).keys())
+          names += list((d.get("dependencies") or {}).keys())
+          names.append("md_metadata")
+          with open(f"bundles/{b}/src/_massdriver_variables.tf", "w") as f:
+              for n in names:
+                  f.write(f'variable "{n}" {{\n  type = any\n}}\n')
+          PY
+            (cd "bundles/$b/src" && tofu init -backend=false -input=false > /dev/null && tofu validate)
+          done
+
+  ui:
+    name: UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: web/dist
+          retention-days: 3
+
+  build:
+    name: Binary
+    needs: [go, ui]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: web/dist
+      - name: Build
+        run: |
+          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o bin/rocketsled ./cmd/rocketsled
+          ./bin/rocketsled version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rocketsled-linux-amd64
+          path: bin/rocketsled
+
+  docker:
+    name: Docker
+    needs: [go, ui]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: rocketsled:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

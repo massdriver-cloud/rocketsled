@@ -1,0 +1,59 @@
+# Copy to rocketsled.yaml. ${VAR} references are expanded from the environment.
+
+server:
+  addr: ":8080"
+  base_url: "http://localhost:8080"     # must be reachable by GitHub/GitLab for OAuth and webhooks
+  session_secret: "${ROCKETSLED_SESSION_SECRET}"   # 32+ random characters
+  session_ttl: 168h
+
+database:
+  path: rocketsled.db
+
+massdriver:
+  url: https://api.massdriver.cloud
+  organization_id: "${MASSDRIVER_ORG_ID}"          # organization abbreviation, not the UUID
+  api_key: "${MASSDRIVER_API_KEY}"                 # service account token (md_...)
+  projects:
+    # Each entry is a Massdriver project users may link a repository to.
+    # Every stack instance is a fork of base_environment inside that project.
+    - id: shop
+      base_environment: prod
+      app_component: api            # component whose image tag follows the repo (auto-detected when omitted)
+      image_tag_param: image.tag    # dotted param path receiving the commit sha or CI-provided tag
+      copy_secrets: true            # carry the base environment's instance secrets into each fork
+      copy_remote_references: false
+    - id: docs
+      base_environment: production
+      image_repository_param: image.repository
+      image_repository: "ghcr.io/{{owner}}/{{repo}}"
+    - id: hello
+      base_environment: base
+      app_component: lambda
+      image_tag_param: image_tag
+      # With image_registry set, Rocketsled builds the stack's Dockerfile on every push
+      # and pushes <image_registry>:<commit sha> before deploying. Needs builder.docker.
+      image_registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com/{{stack}}"
+
+# Optional. Without a builder, images must be built and pushed by your own CI.
+builder:
+  docker:
+    platform: linux/amd64                 # Lambda accepts linux/amd64 or linux/arm64
+    login_command: "aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com"
+
+auth:
+  providers:
+    github:
+      client_id: "${GITHUB_CLIENT_ID}"
+      client_secret: "${GITHUB_CLIENT_SECRET}"
+      # base_url: https://github.example.com   # GitHub Enterprise
+    gitlab:
+      client_id: "${GITLAB_CLIENT_ID}"
+      client_secret: "${GITLAB_CLIENT_SECRET}"
+      # base_url: https://gitlab.example.com   # self-managed GitLab
+  webhooks:
+    secret: "${ROCKETSLED_WEBHOOK_SECRET}"         # shared with every repository webhook Rocketsled creates
+    # Local development only: signs everyone in as `login` with no OAuth app.
+    # Repositories are read from the public GitHub API.
+    # dev:
+    #   login: alice
+    #   repos: [massdriver-cloud/rocketsled]

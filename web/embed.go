@@ -1,0 +1,23 @@
+// Package web embeds the built frontend. Run `make ui` to populate dist/.
+package web
+
+import (
+	"embed"
+	"io/fs"
+)
+
+//go:embed all:dist
+var dist embed.FS
+
+// Dist returns the built UI as a filesystem rooted at dist/, or nil when the UI
+// has not been built.
+func Dist() fs.FS {
+	sub, err := fs.Sub(dist, "dist")
+	if err != nil {
+		return nil
+	}
+	if _, err := fs.Stat(sub, "index.html"); err != nil {
+		return nil
+	}
+	return sub
+}

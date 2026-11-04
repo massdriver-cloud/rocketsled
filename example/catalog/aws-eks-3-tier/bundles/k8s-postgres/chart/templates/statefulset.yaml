@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pg.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pg.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "pg.name" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "pg.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pg.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: "postgres:{{ .Values.version }}-alpine"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: {{ include "pg.name" . }}, key: database}}
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: {{ include "pg.name" . }}, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ include "pg.name" . }}, key: password}}
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.username | quote }}, "-d", {{ .Values.database_name | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.username | quote }}, "-d", {{ .Values.database_name | quote }}]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- include "pg.resources" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.storage_gb }}Gi

@@ -1,0 +1,165 @@
+name: k8s-app
+description: >-
+  A containerized web service running as a Deployment in the tenant's namespace,
+  wired to PostgreSQL, MariaDB and object storage through environment variables.
+  Rocketsled drives image.tag on every push.
+source_url: https://github.com/massdriver-cloud/rocketsled/tree/main/example/catalog/aws-eks-3-tier/bundles/k8s-app
+version: 0.1.0
+
+params:
+  examples:
+    - __name: Development
+      image:
+        repository: ghcr.io/massdriver-cloud/rocketsled-hello
+        tag: latest
+      replicas: 1
+      port: 8080
+      size: small
+      log_level: debug
+      ingress:
+        enabled: false
+        host: ""
+    - __name: Production
+      image:
+        repository: ghcr.io/massdriver-cloud/rocketsled-hello
+        tag: latest
+      replicas: 3
+      port: 8080
+      size: medium
+      log_level: info
+      ingress:
+        enabled: true
+        host: app.example.com
+  required:
+    - image
+    - replicas
+    - port
+    - size
+    - log_level
+  properties:
+    image:
+      type: object
+      title: Container image
+      required:
+        - repository
+        - tag
+      properties:
+        repository:
+          type: string
+          title: Repository
+          description: Registry path without a tag.
+          examples:
+            - ghcr.io/acme/api
+            - 123456789012.dkr.ecr.us-west-2.amazonaws.com/acme/api
+        tag:
+          type: string
+          title: Tag
+          description: Rocketsled sets this to the commit sha it built.
+          default: latest
+    replicas:
+      type: integer
+      title: Replicas
+      default: 1
+      minimum: 1
+      maximum: 20
+    port:
+      type: integer
+      title: Container port
+      default: 8080
+      minimum: 1
+      maximum: 65535
+    size:
+      type: string
+      title: Size per replica
+      default: small
+      oneOf:
+        - const: small
+          title: Small (250m CPU, 256Mi)
+        - const: medium
+          title: Medium (500m CPU, 512Mi)
+        - const: large
+          title: Large (1 CPU, 1Gi)
+    log_level:
+      type: string
+      title: Log level
+      default: info
+      enum:
+        - debug
+        - info
+        - warn
+        - error
+    ingress:
+      type: object
+      title: Ingress
+      description: Expose the service outside the cluster through the cluster's ingress controller.
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+          default: false
+        host:
+          type: string
+          title: Hostname
+          default: ""
+    health_check_path:
+      type: string
+      title: Health check path
+      default: /
+      pattern: ^/[^\s]*$
+
+dependencies:
+  kubernetes_cluster:
+    resource_type: kubernetes-cluster@0.0.0
+    required: true
+  postgres:
+    resource_type: postgres-database@0.0.0
+    required: true
+  mariadb:
+    resource_type: mysql-database@0.0.0
+    required: true
+  bucket:
+    resource_type: object-storage@0.0.0
+    required: true
+
+resources:
+  workload:
+    resource_type: workload@0.0.0
+    required: true
+
+steps:
+  - path: chart
+    provisioner: helm
+    config:
+      namespace: .connections.kubernetes_cluster.namespace
+      timeout: 600
+
+app:
+  envs:
+    LOG_LEVEL: .params.log_level
+    PORT: .params.port | tostring
+  secrets:
+    APP_SECRET:
+      title: Application secret
+      description: Opaque secret handed to the container as APP_SECRET.
+      required: false
+
+ui:
+  ui:order:
+    - image
+    - replicas
+    - port
+    - size
+    - log_level
+    - health_check_path
+    - ingress
+    - "*"
+  image:
+    ui:order:
+      - repository
+      - tag
+  replicas:
+    ui:widget: updown
+  ingress:
+    ui:order:
+      - enabled
+      - host
