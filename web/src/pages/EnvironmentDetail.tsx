@@ -153,7 +153,7 @@ export function EnvironmentDetail() {
               {platform?.instances.map((pi) => (
                 <tr key={pi.id}>
                   <td>
-                    <div className="cell--strong">{pi.name}</div>
+                    <div className="cell--strong">{pi.componentName || pi.componentSlug}</div>
                     <div className="muted small mono">{pi.bundleName}</div>
                   </td>
                   <td>{environment.presets[pi.componentSlug] ?? <span className="muted">—</span>}</td>

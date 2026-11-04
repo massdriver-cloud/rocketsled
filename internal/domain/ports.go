@@ -105,6 +105,7 @@ type UnfulfilledDependency struct {
 type PlatformInstance struct {
 	ID              string             `json:"id"`
 	ComponentSlug   string             `json:"componentSlug"`
+	ComponentName   string             `json:"componentName"`
 	Name            string             `json:"name"`
 	BundleName      string             `json:"bundleName"`
 	Version         string             `json:"version"`

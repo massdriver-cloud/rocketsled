@@ -112,7 +112,7 @@ const environmentFields = `
     project { id }
     instances {
       id name status params paramsSchema resolvedVersion deployedVersion
-      component { id }
+      component { id name }
       bundle { name }
       resources { field resource { id name payload resourceType { id } } }
     }
@@ -139,7 +139,8 @@ type gqlEnvironment struct {
 		ResolvedVersion string         `json:"resolvedVersion"`
 		DeployedVersion string         `json:"deployedVersion"`
 		Component       struct {
-			ID string `json:"id"`
+			ID   string `json:"id"`
+			Name string `json:"name"`
 		} `json:"component"`
 		Bundle *struct {
 			Name string `json:"name"`
@@ -192,6 +193,7 @@ func toEnvironment(e *gqlEnvironment) *domain.PlatformEnvironment {
 		pi := domain.PlatformInstance{
 			ID:              in.ID,
 			ComponentSlug:   localID(in.Component.ID, e.Project.ID),
+			ComponentName:   in.Component.Name,
 			Name:            in.Name,
 			Version:         in.ResolvedVersion,
 			DeployedVersion: in.DeployedVersion,

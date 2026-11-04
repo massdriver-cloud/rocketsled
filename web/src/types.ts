@@ -132,6 +132,7 @@ export interface InstanceResource {
 export interface PlatformInstance {
   id: string;
   componentSlug: string;
+  componentName: string;
   name: string;
   bundleName: string;
   version: string;
