@@ -8,18 +8,66 @@ export interface User {
   avatarUrl?: string;
 }
 
-export interface Meta {
-  providers: Provider[];
-  baseUrl: string;
+export type AccountStatus = "new" | "installing" | "needs_credentials" | "ready" | "failed";
+
+export interface Account {
+  id: string;
+  name: string;
+  organizationId: string;
+  organizationName: string;
+  status: AccountStatus;
+  catalogId?: string;
+  projectId?: string;
+  baseEnvironmentId?: string;
+  platforms: Record<string, string>;
+  installLog?: string;
+  installError?: string;
+  createdAt: string;
 }
 
-export interface Repo {
-  provider: Provider;
-  externalId: string;
-  fullName: string;
-  url: string;
-  defaultBranch: string;
-  private: boolean;
+export interface Me {
+  user: User;
+  account?: Account;
+}
+
+export interface Instruction {
+  label: string;
+  markdown: string;
+}
+
+export interface JsonSchema {
+  title?: string;
+  description?: string;
+  type?: string;
+  required?: string[];
+  properties?: Record<string, JsonSchema & { message?: { pattern?: string }; oneOf?: { const: unknown; title: string }[]; enum?: unknown[]; default?: unknown; examples?: unknown[]; pattern?: string }>;
+}
+
+export interface PlatformType {
+  id: string;
+  label: string;
+  description: string;
+  schema: JsonSchema;
+  uiOrder?: string[];
+  instructions: Instruction[];
+}
+
+export interface Catalog {
+  id: string;
+  name: string;
+  cloud: string;
+  tagline: string;
+  description: string;
+  platforms: PlatformType[];
+  resourceTypes: string[];
+  bundles: string[];
+  bootstrap: { project: string; baseEnvironment: string; appComponent?: string };
+}
+
+export interface PlatformRequirement {
+  type: PlatformType;
+  resourceId?: string;
+  satisfied: boolean;
 }
 
 export interface Preset {
@@ -38,76 +86,48 @@ export interface Project {
   name: string;
   description?: string;
   components: Component[];
+  links: { from: string; to: string }[];
   environments: { id: string; name: string }[];
 }
 
-export interface ProjectLink {
+export type EnvironmentState = "deploying" | "running" | "failed" | "decommissioning";
+
+export interface Environment {
   id: string;
-  baseEnvironment: string;
-  appComponent?: string;
-  imageTagParam: string;
-  imageRegistry?: string;
-  copySecrets: boolean;
-}
-
-export interface LinkableProject {
-  link: ProjectLink;
-  project: Project;
-  appComponent: string;
-}
-
-export interface Stack {
-  id: string;
-  name: string;
-  repo: Repo;
-  path: string;
-  projectId: string;
-  createdBy: string;
-  createdAt: string;
-}
-
-export type InstanceState = "launching" | "running" | "decommissioning" | "failed";
-
-export interface Instance {
-  id: string;
-  stackId: string;
+  accountId: string;
   slug: string;
   name: string;
-  branch: string;
   environmentId: string;
   presets: Record<string, string>;
-  state: InstanceState;
+  state: EnvironmentState;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface StackResponse {
-  stack: Stack;
-  instances: Instance[];
-  deployToken?: string;
+export interface ProjectView {
+  project: Project;
+  catalog: Catalog;
+  environments: Environment[];
 }
 
-export type DeployStatus = "queued" | "building" | "running" | "succeeded" | "failed";
-export type DeployTrigger = "launch" | "manual" | "webhook" | "ci";
+export type RunStatus = "queued" | "running" | "succeeded" | "failed";
 
-export interface Deploy {
+export interface Run {
   id: string;
-  instanceId: string;
   number: number;
-  trigger: DeployTrigger;
-  ref: string;
-  sha: string;
-  imageTag: string;
-  image?: string;
-  status: DeployStatus;
+  trigger: "create" | "deploy";
+  status: RunStatus;
   message?: string;
-  log?: string;
-  platformDeploymentIds: string[];
   createdAt: string;
   updatedAt: string;
 }
 
-export type PackageStatus = "INITIALIZED" | "PROVISIONED" | "DECOMMISSIONED" | "FAILED" | string;
+export interface InstanceResource {
+  field: string;
+  name: string;
+  resourceType: string;
+  payload: Record<string, unknown>;
+}
 
 export interface PlatformInstance {
   id: string;
@@ -116,10 +136,11 @@ export interface PlatformInstance {
   bundleName: string;
   version: string;
   deployedVersion?: string;
-  status: PackageStatus;
+  status: string;
+  resources: InstanceResource[];
 }
 
-export interface Environment {
+export interface PlatformEnvironment {
   id: string;
   name: string;
   projectId: string;
@@ -127,13 +148,9 @@ export interface Environment {
   unfulfilled: { instanceId: string; field: string; resourceType: string }[];
 }
 
-export interface InstanceView {
-  instance: Instance;
-  environment?: Environment;
-  deploys: Deploy[];
+export interface EnvironmentView {
+  environment: Environment;
+  platform?: PlatformEnvironment;
+  runs: Run[];
   gone: boolean;
-}
-
-export interface LaunchResponse {
-  instance: Instance;
 }

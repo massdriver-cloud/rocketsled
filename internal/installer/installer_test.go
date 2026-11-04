@@ -54,6 +54,7 @@ func TestInstallPublishesThenBootstraps(t *testing.T) {
 	var log bytes.Buffer
 	work := t.TempDir()
 
+	inst.CacheDir = filepath.Join(work, "plugin-cache")
 	res, err := inst.Install(context.Background(), domain.InstallRequest{
 		Catalog:    shipped(t),
 		Credential: domain.Credential{OrganizationID: "rs-test", APIKey: "md_secret", URL: "https://api.massdriver.cloud"},
@@ -80,6 +81,7 @@ func TestInstallPublishesThenBootstraps(t *testing.T) {
 
 	assert.Contains(t, f.envs[0], "MASSDRIVER_ORGANIZATION_ID=rs-test")
 	assert.Contains(t, f.envs[0], "MASSDRIVER_API_KEY=md_secret")
+	assert.Contains(t, f.envs[0], "TF_PLUGIN_CACHE_DIR="+filepath.Join(work, "plugin-cache"))
 	assert.Contains(t, log.String(), "==> publishing AWS Serverless into rs-test")
 	assert.NotContains(t, log.String(), "md_secret")
 	_, err = os.Stat(filepath.Join(work, "bootstrap", "main.tf"))

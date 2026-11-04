@@ -245,6 +245,23 @@ func (s *Store) GetAccountByOwner(ctx context.Context, userID string) (*domain.A
 	return a, nil
 }
 
+func (s *Store) ListAccounts(ctx context.Context, status domain.AccountStatus) ([]domain.Account, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE status = ? ORDER BY created_at`, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Account{}
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) UpdateAccount(ctx context.Context, a *domain.Account) error {
 	platforms, err := json.Marshal(orEmpty(a.Platforms))
 	if err != nil {

@@ -100,6 +100,19 @@ func (s *Store) GetAccountByOwner(_ context.Context, userID string) (*domain.Acc
 	return nil, fmt.Errorf("%w: no account for %s", domain.ErrNotFound, userID)
 }
 
+func (s *Store) ListAccounts(_ context.Context, status domain.AccountStatus) ([]domain.Account, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Account{}
+	for _, a := range s.accounts {
+		if a.Status == status {
+			out = append(out, cloneAccount(a))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
 func (s *Store) UpdateAccount(_ context.Context, a *domain.Account) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

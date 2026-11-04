@@ -1,44 +1,72 @@
-import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError } from "./api";
-import type { User } from "./types";
+import type { Account, Me } from "./types";
 import { Shell } from "./components/Shell";
-import { Loading } from "./components/ui";
+import { Loading, Notice } from "./components/ui";
 import { Login } from "./pages/Login";
-import { Stacks } from "./pages/Stacks";
-import { NewStack } from "./pages/NewStack";
-import { StackDetail } from "./pages/StackDetail";
-import { Launch } from "./pages/Launch";
-import { InstancePage } from "./pages/Instance";
+import { Credentials, Start } from "./pages/Start";
+import { Overview } from "./pages/Overview";
+import { Environments } from "./pages/Environments";
+import { NewEnvironment } from "./pages/NewEnvironment";
+import { EnvironmentDetail } from "./pages/EnvironmentDetail";
 
-function Protected() {
-  const [user, setUser] = useState<User | null | undefined>(undefined);
+// Session loads the signed-in user and account once, signs new users up, and
+// routes anyone who has not finished setup to the Start flow.
+function Session() {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
   const location = useLocation();
 
   useEffect(() => {
     api
       .me()
-      .then(setUser)
-      .catch((e: ApiError) => {
-        if (e.status === 401) setUser(null);
-        else setUser(null);
-      });
+      .then(async (m) => {
+        if (!m.account) {
+          try {
+            m.account = await api.createAccount("");
+          } catch (e) {
+            setError((e as ApiError).message);
+          }
+        }
+        setMe(m);
+      })
+      .catch(() => setMe(null));
   }, []);
 
-  if (user === undefined) {
+  const onAccount = useCallback((a: Account) => setMe((m) => (m ? { ...m, account: a } : m)), []);
+
+  if (me === undefined) {
     return (
-      <main className="page">
-        <Loading label="Checking your session" />
+      <main className="main main--narrow">
+        <Loading />
       </main>
     );
   }
-  if (user === null) {
-    const next = encodeURIComponent(location.pathname + location.search);
-    return <Navigate to={`/login?next=${next}`} replace />;
+  if (me === null) {
+    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
+  if (!me.account) {
+    return (
+      <Shell user={me.user}>
+        <Notice tone="bad">Could not create your account: {error}</Notice>
+      </Shell>
+    );
+  }
+  const ready = me.account.status === "ready";
+  if (!ready && location.pathname !== "/start") return <Navigate to="/start" replace />;
+
   return (
-    <Shell user={user}>
-      <Outlet />
+    <Shell user={me.user} account={me.account}>
+      <Routes>
+        <Route path="/start" element={<Start account={me.account} onAccount={onAccount} />} />
+        <Route path="/" element={<Overview account={me.account} />} />
+        <Route path="/environments" element={<Environments />} />
+        <Route path="/environments/new" element={<NewEnvironment />} />
+        <Route path="/environments/:id" element={<EnvironmentDetail />} />
+        <Route path="/credentials" element={<Credentials account={me.account} onAccount={onAccount} standalone />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </Shell>
   );
 }
@@ -48,14 +76,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route element={<Protected />}>
-          <Route path="/" element={<Stacks />} />
-          <Route path="/stacks/new" element={<NewStack />} />
-          <Route path="/stacks/:id" element={<StackDetail />} />
-          <Route path="/stacks/:id/launch" element={<Launch />} />
-          <Route path="/instances/:id" element={<InstancePage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Session />} />
       </Routes>
     </BrowserRouter>
   );

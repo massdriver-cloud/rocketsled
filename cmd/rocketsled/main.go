@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -67,7 +68,11 @@ func main() {
 func loadConfig(args []string, name string) (*config.Config, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	path := fs.String("config", "rocketsled.yaml", "path to the configuration file")
+	envFile := fs.String("env-file", ".env", "KEY=VALUE file loaded into the environment before the config is read")
 	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	if err := config.LoadDotEnv(*envFile); err != nil {
 		return nil, err
 	}
 	return config.Load(*path)
@@ -112,7 +117,7 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 		Platforms:        massdriver.Factory,
 		Store:            store,
 		SCMs:             scms,
-		Installer:        installer.New(cfg.Tools.Mass, cfg.Tools.Tofu),
+		Installer:        installer.New(cfg.Tools.Mass, cfg.Tools.Tofu, filepath.Join(cfg.DataDir, "plugin-cache")),
 		Catalogs:         catalogs,
 		Mode:             domain.AccountMode(cfg.Massdriver.AccountMode),
 		SharedCredential: domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey},
@@ -141,6 +146,12 @@ func serve(args []string, log *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if n, err := a.svc.RecoverInterruptedInstalls(ctx); err != nil {
+		log.Warn("recovering interrupted installs", "err", err)
+	} else if n > 0 {
+		log.Warn("marked interrupted installs as failed", "accounts", n)
+	}
 
 	shared := massdriver.Factory(domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey})
 	if org, err := shared.Ping(ctx); err != nil {

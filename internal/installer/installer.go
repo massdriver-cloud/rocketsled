@@ -25,20 +25,23 @@ type Runner func(ctx context.Context, dir string, env []string, out io.Writer, n
 type Installer struct {
 	Mass string
 	Tofu string
-	Run  Runner
+	// CacheDir, when set, is where OpenTofu caches provider binaries across accounts
+	// so one download serves every install.
+	CacheDir string
+	Run      Runner
 }
 
 var _ domain.Installer = (*Installer)(nil)
 
 // New returns an Installer that runs real commands.
-func New(massBin, tofuBin string) *Installer {
+func New(massBin, tofuBin, cacheDir string) *Installer {
 	if massBin == "" {
 		massBin = "mass"
 	}
 	if tofuBin == "" {
 		tofuBin = "tofu"
 	}
-	return &Installer{Mass: massBin, Tofu: tofuBin, Run: execRunner}
+	return &Installer{Mass: massBin, Tofu: tofuBin, CacheDir: cacheDir, Run: execRunner}
 }
 
 func (i *Installer) Install(ctx context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
@@ -50,6 +53,12 @@ func (i *Installer) Install(ctx context.Context, req domain.InstallRequest) (*do
 		out = io.Discard
 	}
 	env := credentialEnv(req.Credential)
+	if i.CacheDir != "" {
+		if err := os.MkdirAll(i.CacheDir, 0o750); err != nil {
+			return nil, err
+		}
+		env = append(env, "TF_PLUGIN_CACHE_DIR="+i.CacheDir)
+	}
 	cat := req.Catalog
 	say := func(format string, args ...any) { fmt.Fprintf(out, "==> "+format+"\n", args...) }
 

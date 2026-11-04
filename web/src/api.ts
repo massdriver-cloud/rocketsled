@@ -1,13 +1,4 @@
-import type {
-  Deploy,
-  InstanceView,
-  LaunchResponse,
-  LinkableProject,
-  Meta,
-  Repo,
-  StackResponse,
-  User,
-} from "./types";
+import type { Account, Catalog, Environment, EnvironmentView, Me, PlatformRequirement, ProjectView, Run } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -41,28 +32,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  meta: () => request<Meta>("/api/v1/meta"),
-  me: () => request<User>("/api/v1/me"),
+  meta: () => request<{ providers: string[]; baseUrl: string }>("/api/v1/meta"),
+  me: () => request<Me>("/api/v1/me"),
   logout: () => request<void>("/api/v1/logout", { method: "POST" }),
-  repos: () => request<Repo[]>("/api/v1/repos"),
-  projects: () => request<LinkableProject[]>("/api/v1/projects"),
-  project: (id: string) => request<LinkableProject>(`/api/v1/projects/${encodeURIComponent(id)}`),
-  stacks: () => request<StackResponse[]>("/api/v1/stacks"),
-  stack: (id: string) => request<StackResponse>(`/api/v1/stacks/${encodeURIComponent(id)}`),
-  createStack: (input: { name: string; repoFullName: string; projectId: string; path: string }) =>
-    request<StackResponse>("/api/v1/stacks", { method: "POST", body: JSON.stringify(input) }),
-  deleteStack: (id: string) => request<void>(`/api/v1/stacks/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  launch: (stackId: string, input: { slug: string; name: string; branch: string; presets: Record<string, string> }) =>
-    request<LaunchResponse>(`/api/v1/stacks/${encodeURIComponent(stackId)}/instances`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
-  instance: (id: string) => request<InstanceView>(`/api/v1/instances/${encodeURIComponent(id)}`),
-  deploy: (id: string, input: { ref?: string; sha?: string; imageTag?: string; message?: string } = {}) =>
-    request<Deploy>(`/api/v1/instances/${encodeURIComponent(id)}/deploys`, { method: "POST", body: JSON.stringify(input) }),
-  destroy: (id: string) => request<void>(`/api/v1/instances/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  createAccount: (name: string) => request<Account>("/api/v1/account", { method: "POST", body: JSON.stringify({ name }) }),
+  account: () => request<Account>("/api/v1/account"),
+  catalogs: () => request<Catalog[]>("/api/v1/catalogs"),
+  install: (catalogId: string) => request<Account>("/api/v1/account/install", { method: "POST", body: JSON.stringify({ catalogId }) }),
+  platforms: () => request<PlatformRequirement[]>("/api/v1/account/platforms"),
+  providePlatform: (type: string, name: string, payload: Record<string, unknown>) =>
+    request<Account>(`/api/v1/account/platforms/${encodeURIComponent(type)}`, { method: "POST", body: JSON.stringify({ name, payload }) }),
+  project: () => request<ProjectView>("/api/v1/project"),
+  environments: () => request<Environment[]>("/api/v1/environments"),
+  createEnvironment: (input: { slug: string; name: string; presets: Record<string, string> }) =>
+    request<Environment>("/api/v1/environments", { method: "POST", body: JSON.stringify(input) }),
+  environment: (id: string) => request<EnvironmentView>(`/api/v1/environments/${encodeURIComponent(id)}`),
+  deploy: (id: string) => request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/deploys`, { method: "POST" }),
+  destroy: (id: string) => request<Environment>(`/api/v1/environments/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 export function loginUrl(provider: string, next = "/") {
   return `/auth/${provider}/login?next=${encodeURIComponent(next)}`;
+}
+
+export function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const s = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
 }

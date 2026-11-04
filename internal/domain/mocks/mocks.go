@@ -972,6 +972,9 @@ var _ domain.Store = &StoreMock{}
 //			GetUserFunc: func(ctx context.Context, id string) (*domain.User, error) {
 //				panic("mock out the GetUser method")
 //			},
+//			ListAccountsFunc: func(ctx context.Context, status domain.AccountStatus) ([]domain.Account, error) {
+//				panic("mock out the ListAccounts method")
+//			},
 //			ListEnvironmentsFunc: func(ctx context.Context, accountID string) ([]domain.Environment, error) {
 //				panic("mock out the ListEnvironments method")
 //			},
@@ -1029,6 +1032,9 @@ type StoreMock struct {
 
 	// GetUserFunc mocks the GetUser method.
 	GetUserFunc func(ctx context.Context, id string) (*domain.User, error)
+
+	// ListAccountsFunc mocks the ListAccounts method.
+	ListAccountsFunc func(ctx context.Context, status domain.AccountStatus) ([]domain.Account, error)
 
 	// ListEnvironmentsFunc mocks the ListEnvironments method.
 	ListEnvironmentsFunc func(ctx context.Context, accountID string) ([]domain.Environment, error)
@@ -1125,6 +1131,13 @@ type StoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// ListAccounts holds details about calls to the ListAccounts method.
+		ListAccounts []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Status is the status argument value.
+			Status domain.AccountStatus
+		}
 		// ListEnvironments holds details about calls to the ListEnvironments method.
 		ListEnvironments []struct {
 			// Ctx is the ctx argument value.
@@ -1189,6 +1202,7 @@ type StoreMock struct {
 	lockGetBootstrapState    sync.RWMutex
 	lockGetEnvironment       sync.RWMutex
 	lockGetUser              sync.RWMutex
+	lockListAccounts         sync.RWMutex
 	lockListEnvironments     sync.RWMutex
 	lockListRuns             sync.RWMutex
 	lockSaveBootstrapState   sync.RWMutex
@@ -1595,6 +1609,46 @@ func (mock *StoreMock) GetUserCalls() []struct {
 	mock.lockGetUser.RLock()
 	calls = mock.calls.GetUser
 	mock.lockGetUser.RUnlock()
+	return calls
+}
+
+// ListAccounts calls ListAccountsFunc.
+func (mock *StoreMock) ListAccounts(ctx context.Context, status domain.AccountStatus) ([]domain.Account, error) {
+	callInfo := struct {
+		Ctx    context.Context
+		Status domain.AccountStatus
+	}{
+		Ctx:    ctx,
+		Status: status,
+	}
+	mock.lockListAccounts.Lock()
+	mock.calls.ListAccounts = append(mock.calls.ListAccounts, callInfo)
+	mock.lockListAccounts.Unlock()
+	if mock.ListAccountsFunc == nil {
+		var (
+			accountsOut []domain.Account
+			errOut      error
+		)
+		return accountsOut, errOut
+	}
+	return mock.ListAccountsFunc(ctx, status)
+}
+
+// ListAccountsCalls gets all the calls that were made to ListAccounts.
+// Check the length with:
+//
+//	len(mockedStore.ListAccountsCalls())
+func (mock *StoreMock) ListAccountsCalls() []struct {
+	Ctx    context.Context
+	Status domain.AccountStatus
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Status domain.AccountStatus
+	}
+	mock.lockListAccounts.RLock()
+	calls = mock.calls.ListAccounts
+	mock.lockListAccounts.RUnlock()
 	return calls
 }
 

@@ -314,13 +314,20 @@ func (s *Service) InstallCatalog(ctx context.Context, account *Account, catalogI
 	s.runAsync(func() {
 		bg := context.Background()
 		logBuf := &tailBuffer{limit: maxLog}
+		progress := &progressWriter{buf: logBuf, flush: func(text string) {
+			// Keep the install page live: persist the log as it grows.
+			if current, err := s.store.GetAccount(bg, accountID); err == nil {
+				current.InstallLog = text
+				_ = s.store.UpdateAccount(bg, current)
+			}
+		}, now: s.now}
 		res, installErr := s.installer.Install(bg, InstallRequest{
 			Catalog:    catalog,
 			Credential: cred,
 			WorkDir:    filepath.Join(s.dataDir, "accounts", accountID),
 			State:      state,
 			Stable:     s.stable,
-			Log:        logBuf,
+			Log:        progress,
 		})
 		current, err := s.store.GetAccount(bg, accountID)
 		if err != nil {
@@ -353,6 +360,25 @@ func (s *Service) InstallCatalog(ctx context.Context, account *Account, catalogI
 		_ = s.store.UpdateAccount(bg, current)
 	})
 	return account, nil
+}
+
+// RecoverInterruptedInstalls marks accounts left "installing" by a previous
+// process as failed so their owners can retry. Call it once at startup.
+func (s *Service) RecoverInterruptedInstalls(ctx context.Context) (int, error) {
+	accounts, err := s.store.ListAccounts(ctx, AccountStatusInstalling)
+	if err != nil {
+		return 0, err
+	}
+	for i := range accounts {
+		a := &accounts[i]
+		a.Status = AccountStatusFailed
+		a.InstallError = "the install was interrupted by a server restart; retry to continue"
+		a.UpdatedAt = s.now()
+		if err := s.store.UpdateAccount(ctx, a); err != nil {
+			return 0, err
+		}
+	}
+	return len(accounts), nil
 }
 
 func (s *Service) statusAfterCredentials(account *Account, catalog *Catalog) AccountStatus {
@@ -970,3 +996,21 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (t *tailBuffer) String() string { return string(t.buf) }
+
+// progressWriter appends to a tailBuffer and flushes its contents to a callback
+// at most every couple of seconds.
+type progressWriter struct {
+	buf   *tailBuffer
+	flush func(string)
+	now   func() time.Time
+	last  time.Time
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.buf.Write(b)
+	if t := p.now(); t.Sub(p.last) >= 2*time.Second {
+		p.last = t
+		p.flush(p.buf.String())
+	}
+	return n, err
+}

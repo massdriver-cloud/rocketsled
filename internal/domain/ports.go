@@ -192,6 +192,7 @@ type Store interface {
 	CreateAccount(ctx context.Context, a *Account, credential Credential) error
 	GetAccount(ctx context.Context, id string) (*Account, error)
 	GetAccountByOwner(ctx context.Context, userID string) (*Account, error)
+	ListAccounts(ctx context.Context, status AccountStatus) ([]Account, error)
 	UpdateAccount(ctx context.Context, a *Account) error
 	GetAccountCredential(ctx context.Context, accountID string) (Credential, error)
 	SaveBootstrapState(ctx context.Context, accountID string, state []byte) error

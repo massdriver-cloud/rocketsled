@@ -1,124 +1,81 @@
 # Rocketsled
 
-A small platform-as-a-service that runs on top of [Massdriver](https://massdriver.cloud).
-Developers sign in with GitHub or GitLab, link a repository to a Massdriver project, and
-launch **instances**: forked environments that follow a branch and redeploy on push.
+Rocketsled is the "pick a platform" front door to [Massdriver](https://massdriver.cloud).
+Someone signs in, chooses a catalog (AWS Serverless to start), connects their cloud
+account, and gets a working platform with production-shaped environments they size by
+choosing presets. Underneath, every account is a real Massdriver organization they can
+take over whenever they outgrow the simple view.
 
-The name is a nod to the rocket sleds that ride test-track rails; a mass driver is the
-electromagnetic version.
+## How it works
 
-## How it maps onto Massdriver
-
-| Rocketsled | Massdriver |
-|---|---|
-| Project (opted in via config) | Project: the parity boundary and blueprint |
-| Stack | A repository linked to one project |
-| Instance | An environment forked from the project's base environment |
-| Preset | An entry in a bundle's `params.examples` (`__name`) |
-| Run | A `createDeployment` (app component) or `deployEnvironment` (launch) |
-
-Rocketsled never exposes raw bundle parameters. When launching an instance a user picks
-one preset per component; the chosen preset is deep-merged over the base environment's
-configuration with `copyInstance`, and the app component's image tag is set to the
-branch head. Everything else, including cloud credentials, comes from the base environment
-through `copyEnvironmentDefaults`.
-
-## Requirements on the Massdriver side
-
-1. An organization with a service account token (`md_...`).
-2. One or more projects, each with a fully configured, deployable **base environment**
-   (for example `production` or `staging`) whose environment defaults supply cloud
-   credentials.
-3. Bundles with `params.examples` presets. Components without presets can still be
-   launched; they inherit the base environment's parameters.
-4. An application component whose params include an image tag path (default `image.tag`).
+1. **Sign up.** A signup is a Massdriver organization. In `organization` mode Rocketsled
+   creates one (`rs-<adjective>-<noun>-<nn>`) with a user token that may create
+   organizations, then mints an admin service account in it and keeps that token,
+   encrypted, as the account's credential. In `shared` mode (development) every account
+   borrows one configured organization.
+2. **Install a catalog.** A catalog is a directory with `platforms/`, `resource-types/`,
+   `bundles/` and `bootstrap/`. Rocketsled shells out to the `mass` CLI to publish the
+   platforms, resource types and bundles into the account's organization, then runs
+   `tofu apply` on the bootstrap, which creates the project, its environments and the
+   links between components. The OpenTofu state is stored with the account so a retry
+   converges. This happens once per account.
+3. **Connect the cloud.** Each platform type the catalog lists (an AWS IAM role, say)
+   becomes a form generated from its JSON Schema, with the type's own instructions next
+   to it. The submitted credential is created as a resource in the organization and
+   pinned as an environment default on every environment.
+4. **Create environments.** An environment forks the bootstrapped base environment,
+   applies one preset per component (the bundle's own `params.examples`), pins the
+   credentials, and deploys. The environment page shows each component's status and the
+   addresses and names its resources expose.
 
 ## Run it
 
 ```sh
-cp rocketsled.example.yaml rocketsled.yaml   # fill in secrets, or export them as env vars
-make            # builds the UI and the binary
-bin/rocketsled check -config rocketsled.yaml   # validates config and lists projects, components, presets
-bin/rocketsled serve -config rocketsled.yaml
+cp rocketsled.example.yaml rocketsled.yaml
+printf 'MASSDRIVER_ORGANIZATION_ID=...\nMASSDRIVER_API_KEY=md_...\n' > .env   # gitignored
+make                           # builds the UI and the binary
+bin/rocketsled check           # credential, catalogs
+bin/rocketsled serve
 ```
 
-Or with Docker:
+The server reads `.env` (or `-env-file`) before the config. Without an explicit
+credential it falls back to the `mass` CLI profile named by `MASSDRIVER_CREDENTIAL_PATH`
+and `MASSDRIVER_PROFILE` (default `~/.config/massdriver/config.yaml`, `default`).
+`mass` and `tofu` must be on the PATH for installs.
 
-```sh
-docker build -t rocketsled .
-docker run -p 8080:8080 -v "$PWD/data:/data" --env-file .env rocketsled
-```
+## Catalogs
 
-`server.base_url` must be reachable by GitHub/GitLab: OAuth callbacks land on
-`/auth/{provider}/callback` and push webhooks on `/hooks/{provider}`. For local
-development, a tunnel such as `ngrok http 8080` works.
+`catalogs/aws-serverless` is the first one: `shared-vpc`, `http-api`, `dynamodb-table`
+and `lambda-function` lifted from
+[aws-software-factory](https://github.com/massdriver-catalogs/aws-software-factory),
+with the real schemas, presets and resource contracts but stub IaC (`random_pet`) so
+deploys cost nothing while the product is being designed. Its bootstrap creates the
+**AWS Serverless Platform** project with a **Production** environment and all four
+components linked.
 
-### OAuth applications
-
-- **GitHub**: Settings → Developer settings → OAuth Apps. Callback URL
-  `<base_url>/auth/github/callback`. Rocketsled requests `read:user user:email repo`.
-- **GitLab**: User settings → Applications. Redirect URI
-  `<base_url>/auth/gitlab/callback`, scopes `read_user api`.
-
-## Building images
-
-Set `builder.docker` and give a project an `image_registry`, and Rocketsled builds the
-stack's Dockerfile itself: on launch and on every push it clones the commit, runs
-`docker build` in the stack's path, pushes `<image_registry>:<sha>`, then deploys with the
-tag. A stack's **path** points at the directory holding the Dockerfile, so a monorepo can
-host several stacks. `example/hello-world` is a Lambda container image built this way.
-
-Without a builder, Rocketsled only writes the tag and expects CI to have pushed the image.
-
-## Example catalog
-
-`example/catalog/aws-eks-3-tier` is a Massdriver catalog (same layout as
-massdriver-catalog) built for Rocketsled stacks on Kubernetes: `aws-vpc` and `aws-eks`
-for the platform team, a `k8s-landing-zone` that turns a cluster into per-tenant
-namespaces with scoped credentials, and four Helm bundles (PostgreSQL, MariaDB,
-MinIO object storage, and an app Deployment) that consume only the namespaced
-`kubernetes-cluster` credential. Its README explains how a tenant's credential becomes
-the environment default for that customer's stack instances.
-
-## Deploy automation
-
-Two paths, both per stack:
-
-- **Webhook**: Rocketsled registers a push webhook when a stack is linked. A push to a
-  branch redeploys every instance following that branch with the commit sha as the image
-  tag.
-- **CI callback**: when the pipeline builds the image, call back after the push with the
-  stack's deploy token (shown once at link time):
-
-  ```sh
-  curl -X POST "$ROCKETSLED_URL/ci/v1/stacks/$STACK_ID/deploys" \
-    -H "Authorization: Bearer $ROCKETSLED_DEPLOY_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"ref\":\"$GITHUB_REF_NAME\",\"sha\":\"$GITHUB_SHA\",\"imageTag\":\"$GITHUB_SHA\"}"
-  ```
+`catalog.yaml` declares the id, cloud, platforms, publish order and what the bootstrap
+produces. Adding a catalog is adding a directory.
 
 ## REST API
 
-All routes under `/api/v1` require the session cookie set by the OAuth flow.
+All routes under `/api/v1` require the session cookie set by the OAuth flow; routes that
+need an account return 412 until signup is complete.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v1/meta` | Configured sign-in providers |
-| GET | `/api/v1/me` | Current user |
-| POST | `/api/v1/logout` | End the session |
-| GET | `/api/v1/repos` | Repositories visible to the user |
-| GET | `/api/v1/projects` | Opted-in projects with components and presets |
-| GET | `/api/v1/projects/{id}` | One project |
-| GET, POST | `/api/v1/stacks` | List, link (`{name, repoFullName, projectId, path}`) |
-| GET, DELETE | `/api/v1/stacks/{id}` | Detail, unlink |
-| GET, POST | `/api/v1/stacks/{id}/instances` | List, launch |
-| GET, DELETE | `/api/v1/instances/{id}` | Live status, destroy |
-| POST | `/api/v1/instances/{id}/deploys` | Deploy now (`{ref?, sha?, imageTag?, message?}`); returns 202, the run continues in the background |
-| POST | `/hooks/{provider}` | SCM push webhook |
-| POST | `/ci/v1/stacks/{id}/deploys` | CI callback, Bearer deploy token |
+| GET | `/api/v1/me` | User and account |
+| POST | `/api/v1/account` | Sign up |
+| GET | `/api/v1/catalogs` | Installable catalogs |
+| POST | `/api/v1/account/install` | Install a catalog (`{catalogId}`), returns 202 |
+| GET | `/api/v1/account` | Account status and install log |
+| GET, POST | `/api/v1/account/platforms[/{type}]` | Credential requirements; provide one (`{name, payload}`) |
+| GET | `/api/v1/project` | Project, components with presets, environments |
+| GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`), returns 202 |
+| GET, DELETE | `/api/v1/environments/{id}` | Live status with resources and runs; destroy |
+| POST | `/api/v1/environments/{id}/deploys` | Redeploy, returns 202 |
 
-Errors are `{"error": "...", "field": "..."}` with 422 for validation, 404, 403, 409, and
-502 when Massdriver or the SCM rejected a call.
+Errors are `{"error": "...", "field": "..."}` with 422 for validation, 404, 409, and 502
+when Massdriver rejected a call.
 
 ## Development
 
@@ -129,20 +86,18 @@ make generate    # regenerate domain mocks (moq)
 make ui-dev      # Vite dev server on :5173, proxying to :8080
 ```
 
-Layout:
-
 ```
 cmd/rocketsled        entrypoint: serve, check
-internal/config       rocketsled.yaml
-internal/domain       entities, ports (Platform, SCM, Store), Service, tests with mocks
+internal/config       rocketsled.yaml, .env, mass profile fallback
+internal/domain       entities, ports (Platform, SCM, Store, Installer), Service, mocked tests
+internal/catalog      loads catalogs from disk
+internal/installer    mass + tofu shell-out implementing domain.Installer
 internal/massdriver   GraphQL adapter implementing domain.Platform
-internal/scm          GitHub and GitLab providers implementing domain.SCM
-internal/store        SQLite store (tokens encrypted at rest) and an in-memory store
+internal/scm          GitHub, GitLab and dev sign-in
+internal/store        SQLite store (credentials encrypted) and an in-memory store
 internal/httpapi      REST handlers, session auth, embedded UI
-internal/builder      docker/git image builder implementing domain.Builder
 web                   Vite + React UI, embedded into the binary at build time
-example/hello-world   Lambda container image app used to demo the whole loop
-example/catalog       Massdriver catalog: VPC, EKS, landing zone, and Helm data/app tier bundles
+catalogs              installable catalogs
 ```
 
 Ideas that are not built yet are in [TODO.md](TODO.md).

@@ -432,3 +432,17 @@ func TestNewOrganizationIDFitsTheLimit(t *testing.T) {
 		assert.Regexp(t, `^rs-[a-z]+-[a-z]+-\d{2}$|^rs-[a-z]+-\d{2}$`, id)
 	}
 }
+
+func TestRecoverInterruptedInstalls(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.signedUp(t)
+	a.Status = domain.AccountStatusInstalling
+	require.NoError(t, h.store.UpdateAccount(context.Background(), a))
+
+	n, err := h.svc.RecoverInterruptedInstalls(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	got, _ := h.store.GetAccount(context.Background(), a.ID)
+	assert.Equal(t, domain.AccountStatusFailed, got.Status)
+	assert.Contains(t, got.InstallError, "interrupted")
+}

@@ -1,82 +1,48 @@
-import { Link } from "react-router-dom";
-import type { DeployStatus, InstanceState, PackageStatus } from "../types";
+import { marked } from "marked";
+import { useMemo } from "react";
 
-export function Wordmark({ hero = false, to = "/" }: { hero?: boolean; to?: string }) {
+type Tone = "ok" | "warn" | "bad" | "neutral";
+
+const tones: Record<string, Tone> = {
+  running: "ok",
+  succeeded: "ok",
+  ready: "ok",
+  PROVISIONED: "ok",
+  deploying: "warn",
+  installing: "warn",
+  queued: "warn",
+  needs_credentials: "warn",
+  INITIALIZED: "neutral",
+  failed: "bad",
+  FAILED: "bad",
+  decommissioning: "neutral",
+  DECOMMISSIONED: "neutral",
+  new: "neutral",
+};
+
+const labels: Record<string, string> = {
+  needs_credentials: "needs credentials",
+  PROVISIONED: "provisioned",
+  INITIALIZED: "not deployed",
+  FAILED: "failed",
+  DECOMMISSIONED: "removed",
+};
+
+export function Pill({ status, live }: { status: string; live?: boolean }) {
+  const tone = tones[status] ?? "neutral";
+  const isLive = live ?? (status === "deploying" || status === "installing" || status === "queued" || status === "decommissioning");
+  return <span className={`pill ${tone === "neutral" ? "" : `pill--${tone}`} ${isLive ? "pill--live" : ""}`}>{labels[status] ?? status}</span>;
+}
+
+export function Notice({ tone = "info", children }: { tone?: "info" | "bad" | "warn" | "ok"; children: React.ReactNode }) {
   return (
-    <Link to={to} className={`wordmark ${hero ? "wordmark--hero" : ""}`} aria-label="Rocketsled home">
-      <span className="display wordmark__text">Rocketsled</span>
-      <svg className="wordmark__rail" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
-        <rect x="0" y="0" width="100" height="2" fill="currentColor" />
-        <rect x="0" y="8" width="100" height="2" fill="currentColor" />
-        <rect x="0" y="2" width="1.2" height="6" fill="currentColor" opacity="0.5" />
-        <rect x="20" y="2" width="1.2" height="6" fill="currentColor" opacity="0.5" />
-        <rect x="40" y="2" width="1.2" height="6" fill="currentColor" opacity="0.5" />
-        <rect x="60" y="2" width="1.2" height="6" fill="currentColor" opacity="0.5" />
-        <rect x="80" y="2" width="1.2" height="6" fill="currentColor" opacity="0.5" />
-        <rect x="98.8" y="2" width="1.2" height="6" fill="currentColor" opacity="0.5" />
-      </svg>
-    </Link>
-  );
-}
-
-export function Eyebrow({ children, red = false }: { children: React.ReactNode; red?: boolean }) {
-  return <span className={`eyebrow ${red ? "eyebrow--red" : ""}`}>{children}</span>;
-}
-
-type Tone = "go" | "flare" | "sled" | "hold";
-
-function toneFor(status: string): { tone: Tone; live: boolean } {
-  switch (status) {
-    case "running":
-    case "succeeded":
-    case "PROVISIONED":
-      return { tone: "go", live: status === "running" && false };
-    case "launching":
-    case "queued":
-    case "building":
-    case "INITIALIZED":
-      return { tone: "flare", live: status !== "INITIALIZED" };
-    case "failed":
-    case "FAILED":
-      return { tone: "sled", live: false };
-    default:
-      return { tone: "hold", live: status === "decommissioning" };
-  }
-}
-
-export function Pill({ status, live }: { status: InstanceState | DeployStatus | PackageStatus; live?: boolean }) {
-  const t = toneFor(status);
-  const isLive = live ?? (t.live || status === "running");
-  return <span className={`pill pill--${t.tone} ${isLive && status !== "running" ? "pill--live" : ""}`}>{status}</span>;
-}
-
-export function Marker({ status, live }: { status: string; live?: boolean }) {
-  return <span className={`rail__marker rail__marker--${status} ${live ? "rail__marker--live" : ""}`} aria-hidden="true" />;
-}
-
-export function Sha({ sha }: { sha: string }) {
-  return (
-    <code title={sha} className="mono">
-      {sha.slice(0, 7)}
-    </code>
-  );
-}
-
-export function Notice({
-  tone = "info",
-  children,
-}: {
-  tone?: "info" | "error" | "warn" | "ok";
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`notice ${tone === "info" ? "" : `notice--${tone}`}`} role={tone === "error" ? "alert" : undefined}>
+    <div className={`notice ${tone === "info" ? "" : `notice--${tone}`}`} role={tone === "bad" ? "alert" : undefined}>
       {children}
     </div>
   );
 }
 
-export function Loading({ label = "Reading telemetry" }: { label?: string }) {
+export function Loading({ label = "Loading" }: { label?: string }) {
   return (
     <div className="loading" role="status">
       {label}…
@@ -84,12 +50,25 @@ export function Loading({ label = "Reading telemetry" }: { label?: string }) {
   );
 }
 
-export function Empty({ title, children }: { title: string; children?: React.ReactNode }) {
+export function Markdown({ source }: { source: string }) {
+  const html = useMemo(() => marked.parse(source, { async: false }) as string, [source]);
+  return <div className="prose" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+export function Steps({ current }: { current: 1 | 2 | 3 }) {
+  const items = ["Choose a platform", "Install", "Connect your cloud"];
   return (
-    <div className="empty">
-      <Eyebrow>Track clear</Eyebrow>
-      <h3>{title}</h3>
-      {children}
-    </div>
+    <nav className="steps" aria-label="Setup progress">
+      {items.map((label, i) => {
+        const n = i + 1;
+        const cls = n < current ? "done" : n === current ? "current" : "";
+        return (
+          <span key={label} className={cls}>
+            <i>{n < current ? "✓" : n}</i>
+            {label}
+          </span>
+        );
+      })}
+    </nav>
   );
 }
