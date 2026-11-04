@@ -267,6 +267,8 @@ func TestProvidePlatformCreatesTheResourceAndPinsIt(t *testing.T) {
 	assert.Equal(t, "AWS IAM Role", call.Name, "the name defaults to the type's label")
 	assert.Equal(t, map[string]string{"aws-iam-role": "res-role"}, a.Platforms)
 	assert.Equal(t, domain.AccountStatusReady, a.Status)
+	require.Len(t, h.platform.GrantResourceCalls(), 1)
+	assert.Equal(t, "res-role", h.platform.GrantResourceCalls()[0].ResourceID, "the credential is shared before it is pinned")
 	require.Len(t, h.platform.SetEnvironmentDefaultCalls(), 1)
 	assert.Equal(t, "serverless-production", h.platform.SetEnvironmentDefaultCalls()[0].EnvironmentID)
 	assert.Equal(t, "res-role", h.platform.SetEnvironmentDefaultCalls()[0].ResourceID)
@@ -445,4 +447,24 @@ func TestRecoverInterruptedInstalls(t *testing.T) {
 	got, _ := h.store.GetAccount(context.Background(), a.ID)
 	assert.Equal(t, domain.AccountStatusFailed, got.Status)
 	assert.Contains(t, got.InstallError, "interrupted")
+}
+
+func TestProjectComponentsAreListedProducersFirst(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.ready(t)
+	h.platform.GetProjectFunc = func(context.Context, string) (*domain.Project, error) {
+		return &domain.Project{
+			ID: "serverless", Name: "AWS Serverless Platform",
+			Components: []domain.Component{{Slug: "app"}, {Slug: "api"}, {Slug: "vpc"}, {Slug: "table"}},
+			Links:      []domain.Link{{From: "api", To: "app"}, {From: "table", To: "app"}, {From: "vpc", To: "app"}},
+		}, nil
+	}
+
+	view, err := h.svc.Project(context.Background(), a)
+	require.NoError(t, err)
+	slugs := make([]string, 0, 4)
+	for _, c := range view.Project.Components {
+		slugs = append(slugs, c.Slug)
+	}
+	assert.Equal(t, []string{"api", "vpc", "table", "app"}, slugs)
 }

@@ -54,10 +54,15 @@ func (i *Installer) Install(ctx context.Context, req domain.InstallRequest) (*do
 	}
 	env := credentialEnv(req.Credential)
 	if i.CacheDir != "" {
-		if err := os.MkdirAll(i.CacheDir, 0o750); err != nil {
+		// tofu runs inside the work dir, so the cache path has to be absolute.
+		cacheDir, err := filepath.Abs(i.CacheDir)
+		if err != nil {
 			return nil, err
 		}
-		env = append(env, "TF_PLUGIN_CACHE_DIR="+i.CacheDir)
+		if err := os.MkdirAll(cacheDir, 0o750); err != nil {
+			return nil, err
+		}
+		env = append(env, "TF_PLUGIN_CACHE_DIR="+cacheDir)
 	}
 	cat := req.Catalog
 	say := func(format string, args ...any) { fmt.Fprintf(out, "==> "+format+"\n", args...) }
@@ -118,6 +123,9 @@ func (i *Installer) publishResourceType(ctx context.Context, env []string, out i
 func (i *Installer) publishBundle(ctx context.Context, env []string, out io.Writer, dir, name string, stable bool) error {
 	fmt.Fprintf(out, "--> bundle %s\n", name)
 	_ = i.Run(ctx, dir, env, out, i.Mass, "repository", "create", name, "-t", "bundle")
+	// A repository is only usable by projects it is shared with. The organization
+	// belongs to this one customer, so every project may pull every bundle.
+	_ = i.Run(ctx, dir, env, out, i.Mass, "repository", "grant", "create", name, "--all-projects")
 	args := []string{"bundle", "publish", "--bundle-directory", "."}
 	if !stable {
 		args = append(args, "--development")
@@ -155,7 +163,7 @@ func prepareWorkDir(catalogDir, workDir string, state []byte) error {
 		return fmt.Errorf("read bootstrap: %w", err)
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".tf") {
+		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".tf") && e.Name() != ".terraform.lock.hcl") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(src, e.Name()))

@@ -49,6 +49,9 @@ var _ domain.Platform = &PlatformMock{}
 //			GetProjectFunc: func(ctx context.Context, projectID string) (*domain.Project, error) {
 //				panic("mock out the GetProject method")
 //			},
+//			GrantResourceFunc: func(ctx context.Context, resourceID string) error {
+//				panic("mock out the GrantResource method")
+//			},
 //			PingFunc: func(ctx context.Context) (string, error) {
 //				panic("mock out the Ping method")
 //			},
@@ -91,6 +94,9 @@ type PlatformMock struct {
 
 	// GetProjectFunc mocks the GetProject method.
 	GetProjectFunc func(ctx context.Context, projectID string) (*domain.Project, error)
+
+	// GrantResourceFunc mocks the GrantResource method.
+	GrantResourceFunc func(ctx context.Context, resourceID string) error
 
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) (string, error)
@@ -180,6 +186,13 @@ type PlatformMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// GrantResource holds details about calls to the GrantResource method.
+		GrantResource []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ResourceID is the resourceID argument value.
+			ResourceID string
+		}
 		// Ping holds details about calls to the Ping method.
 		Ping []struct {
 			// Ctx is the ctx argument value.
@@ -205,6 +218,7 @@ type PlatformMock struct {
 	lockForkEnvironment         sync.RWMutex
 	lockGetEnvironment          sync.RWMutex
 	lockGetProject              sync.RWMutex
+	lockGrantResource           sync.RWMutex
 	lockPing                    sync.RWMutex
 	lockSetEnvironmentDefault   sync.RWMutex
 }
@@ -621,6 +635,45 @@ func (mock *PlatformMock) GetProjectCalls() []struct {
 	mock.lockGetProject.RLock()
 	calls = mock.calls.GetProject
 	mock.lockGetProject.RUnlock()
+	return calls
+}
+
+// GrantResource calls GrantResourceFunc.
+func (mock *PlatformMock) GrantResource(ctx context.Context, resourceID string) error {
+	callInfo := struct {
+		Ctx        context.Context
+		ResourceID string
+	}{
+		Ctx:        ctx,
+		ResourceID: resourceID,
+	}
+	mock.lockGrantResource.Lock()
+	mock.calls.GrantResource = append(mock.calls.GrantResource, callInfo)
+	mock.lockGrantResource.Unlock()
+	if mock.GrantResourceFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.GrantResourceFunc(ctx, resourceID)
+}
+
+// GrantResourceCalls gets all the calls that were made to GrantResource.
+// Check the length with:
+//
+//	len(mockedPlatform.GrantResourceCalls())
+func (mock *PlatformMock) GrantResourceCalls() []struct {
+	Ctx        context.Context
+	ResourceID string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		ResourceID string
+	}
+	mock.lockGrantResource.RLock()
+	calls = mock.calls.GrantResource
+	mock.lockGrantResource.RUnlock()
 	return calls
 }
 

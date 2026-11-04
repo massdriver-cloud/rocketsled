@@ -5,7 +5,7 @@ UI_DIR   := web
 # `make lint-tool` builds one with the current toolchain into bin/.
 GOLANGCI ?= $(shell test -x bin/golangci-lint && echo bin/golangci-lint || echo golangci-lint)
 
-.PHONY: all build ui ui-dev run test lint lint-tool fmt generate tidy clean docker
+.PHONY: all build ui ui-dev run providers test lint lint-tool fmt generate tidy clean docker
 
 all: ui build
 
@@ -18,8 +18,11 @@ ui:
 ui-dev:
 	cd $(UI_DIR) && pnpm install && pnpm dev
 
-run: build
+run: build providers
 	$(BIN) serve -config rocketsled.yaml
+
+providers:
+	scripts/fetch-providers.sh data/plugin-cache
 
 test:
 	$(GO) test -race -cover ./...

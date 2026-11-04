@@ -8,7 +8,7 @@ const slugPattern = /^[a-z0-9]{1,20}$/;
 
 function summarize(params: Record<string, unknown>): string {
   return Object.entries(params)
-    .filter(([k, v]) => k !== "__name" && (typeof v === "string" || typeof v === "number" || typeof v === "boolean"))
+    .filter(([k, v]) => k !== "__name" && v !== "" && (typeof v === "string" || typeof v === "number" || typeof v === "boolean"))
     .slice(0, 4)
     .map(([k, v]) => `${k}: ${String(v)}`)
     .join(" · ");

@@ -32,6 +32,8 @@ type Platform interface {
 	DeleteEnvironment(ctx context.Context, environmentID string) error
 	// CreateResource imports a resource of a type (a credential, typically) and returns its ID.
 	CreateResource(ctx context.Context, resourceTypeID, name string, payload map[string]any) (string, error)
+	// GrantResource shares a resource with every environment so it can be a default.
+	GrantResource(ctx context.Context, resourceID string) error
 	// SetEnvironmentDefault pins a resource as the environment's default of its type.
 	SetEnvironmentDefault(ctx context.Context, environmentID, resourceID string) error
 }

@@ -96,7 +96,13 @@ func TestMutationsSendInputsAndSurfaceValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "res-1", id)
 	assert.Equal(t, "aws-iam-role", last.Variables["resourceTypeId"])
-	assert.Equal(t, map[string]any{"name": "My role", "payload": map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"}}, last.Variables["input"])
+	input := last.Variables["input"].(map[string]any)
+	assert.Equal(t, "My role", input["name"])
+	assert.JSONEq(t, `{"arn":"arn:aws:iam::1:role/x","external_id":"e"}`, input["payload"].(string), "Map scalars travel as JSON strings")
+
+	c, last, _ = server(t, `{"data":{"createResourceGrant":{"successful":true,"result":{"id":"g"}}}}`, 200)
+	require.NoError(t, c.GrantResource(context.Background(), "res-1"))
+	assert.Equal(t, map[string]any{"action": "resource:export", "recipientConditions": "*"}, last.Variables["input"])
 
 	c, last, _ = server(t, `{"data":{"setEnvironmentDefault":{"successful":true,"result":{"id":"d"}}}}`, 200)
 	require.NoError(t, c.SetEnvironmentDefault(context.Background(), "serverless-dev", "res-1"))
@@ -120,4 +126,11 @@ func TestMutationsSendInputsAndSurfaceValidation(t *testing.T) {
 	c, last, _ = server(t, `{"data":{"deployEnvironment":{"successful":true,"result":{"id":"serverless-dev"}}}}`, 200)
 	require.NoError(t, c.DeployEnvironment(context.Background(), "serverless-dev"))
 	assert.Equal(t, "serverless-dev", last.Variables["id"])
+}
+
+func TestCopyInstanceEncodesOverridesAsJSONString(t *testing.T) {
+	c, last, _ := server(t, `{"data":{"copyInstance":{"successful":true,"result":{"id":"serverless-dev-api"}}}}`, 200)
+	require.NoError(t, c.CopyInstance(context.Background(), "serverless-production-api", "serverless-dev-api", map[string]any{"throttle_rate": 50}))
+	input := last.Variables["input"].(map[string]any)
+	assert.JSONEq(t, `{"throttle_rate":50}`, input["overrides"].(string))
 }

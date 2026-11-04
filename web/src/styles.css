@@ -546,11 +546,13 @@ code,
 .form {
   display: grid;
   gap: 18px;
+  align-content: start;
 }
 
 .field {
   display: grid;
   gap: 6px;
+  align-content: start;
 }
 
 .field > label,

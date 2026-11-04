@@ -72,6 +72,7 @@ func TestInstallPublishesThenBootstraps(t *testing.T) {
 	assert.Contains(t, joined, "aws-iam-role: mass repository create aws-iam-role -t resource-type")
 	assert.Contains(t, joined, "aws-iam-role: mass resource-type publish .")
 	assert.Contains(t, joined, "aws-vpc: mass resource-type publish .")
+	assert.Contains(t, joined, "shared-vpc: mass repository grant create shared-vpc --all-projects")
 	assert.Contains(t, joined, "shared-vpc: mass bundle publish --bundle-directory .")
 	assert.NotContains(t, joined, "--development")
 	assert.Contains(t, joined, "bootstrap: tofu init -input=false -no-color")

@@ -2,6 +2,7 @@ package massdriver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -86,6 +87,19 @@ func (c *Client) GetProject(ctx context.Context, projectID string) (*domain.Proj
 		p.Links = append(p.Links, domain.Link{From: localID(l.FromComponent.ID, out.Project.ID), To: localID(l.ToComponent.ID, out.Project.ID)})
 	}
 	return p, nil
+}
+
+// mapArg encodes a Go map for Massdriver's Map scalar, which only accepts a
+// JSON-encoded string on input.
+func mapArg(m map[string]any) string {
+	if m == nil {
+		m = map[string]any{}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 // localID strips a parent identifier prefix: "shop-prod-api" under "shop-prod" is "api".
@@ -259,7 +273,7 @@ func (c *Client) CopyInstance(ctx context.Context, sourceID, destinationID strin
 	vars := map[string]any{
 		"sourceId":      sourceID,
 		"destinationId": destinationID,
-		"input":         map[string]any{"overrides": overrides},
+		"input":         map[string]any{"overrides": mapArg(overrides)},
 	}
 	if err := c.do(ctx, copyInstanceMutation, vars, &out); err != nil {
 		return err
@@ -313,7 +327,7 @@ func (c *Client) CreateResource(ctx context.Context, resourceTypeID, name string
 	}
 	vars := map[string]any{
 		"resourceTypeId": resourceTypeID,
-		"input":          map[string]any{"name": name, "payload": data},
+		"input":          map[string]any{"name": name, "payload": mapArg(data)},
 	}
 	if err := c.do(ctx, createResourceMutation, vars, &out); err != nil {
 		return "", err
@@ -325,6 +339,30 @@ func (c *Client) CreateResource(ctx context.Context, resourceTypeID, name string
 		return "", errNilResult
 	}
 	return out.CreateResource.Result.ID, nil
+}
+
+const grantResourceMutation = `
+mutation RocketsledGrantResource($organizationId: ID!, $resourceId: ID!, $input: CreateResourceGrantInput!) {
+  createResourceGrant(organizationId: $organizationId, resourceId: $resourceId, input: $input) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`
+
+// GrantResource shares a resource with every environment in the organization.
+func (c *Client) GrantResource(ctx context.Context, resourceID string) error {
+	var out struct {
+		CreateResourceGrant payload[struct{ ID string }] `json:"createResourceGrant"`
+	}
+	vars := map[string]any{
+		"resourceId": resourceID,
+		"input":      map[string]any{"action": "resource:export", "recipientConditions": "*"},
+	}
+	if err := c.do(ctx, grantResourceMutation, vars, &out); err != nil {
+		return err
+	}
+	return out.CreateResourceGrant.check("createResourceGrant")
 }
 
 const setDefaultMutation = `

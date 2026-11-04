@@ -448,6 +448,9 @@ func (s *Service) ProvidePlatform(ctx context.Context, account *Account, typeID,
 	if err != nil {
 		return nil, fmt.Errorf("store credential: %w", err)
 	}
+	if err := platform.GrantResource(ctx, resourceID); err != nil {
+		return nil, fmt.Errorf("share credential with environments: %w", err)
+	}
 	if account.Platforms == nil {
 		account.Platforms = map[string]string{}
 	}
@@ -572,7 +575,58 @@ func (s *Service) blueprint(ctx context.Context, platform Platform, account *Acc
 			c.Bundle = Bundle{Name: pi.BundleName, Version: pi.Version, Presets: pi.Presets(), ParamsSchema: pi.ParamsSchema}
 		}
 	}
+	project.Components = dependencyOrder(project.Components, project.Links)
 	return project, base, nil
+}
+
+// dependencyOrder lists producers before the components that consume them, so
+// the platform reads top-down: network, data, API, application.
+func dependencyOrder(components []Component, links []Link) []Component {
+	index := make(map[string]int, len(components))
+	for i, c := range components {
+		index[c.Slug] = i
+	}
+	indegree := make(map[string]int, len(components))
+	consumers := make(map[string][]string, len(components))
+	for _, l := range links {
+		if _, ok := index[l.From]; !ok {
+			continue
+		}
+		if _, ok := index[l.To]; !ok {
+			continue
+		}
+		indegree[l.To]++
+		consumers[l.From] = append(consumers[l.From], l.To)
+	}
+	var ready []string
+	for _, c := range components {
+		if indegree[c.Slug] == 0 {
+			ready = append(ready, c.Slug)
+		}
+	}
+	ordered := make([]Component, 0, len(components))
+	seen := make(map[string]bool, len(components))
+	for len(ready) > 0 {
+		slug := ready[0]
+		ready = ready[1:]
+		if seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		ordered = append(ordered, components[index[slug]])
+		for _, next := range consumers[slug] {
+			indegree[next]--
+			if indegree[next] == 0 {
+				ready = append(ready, next)
+			}
+		}
+	}
+	for _, c := range components {
+		if !seen[c.Slug] {
+			ordered = append(ordered, c)
+		}
+	}
+	return ordered
 }
 
 // --- environments ------------------------------------------------------------
