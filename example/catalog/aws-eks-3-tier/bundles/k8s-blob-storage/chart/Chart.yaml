@@ -1,6 +1,0 @@
-apiVersion: v2
-name: k8s-blob-storage
-description: MinIO object storage with one bucket for tenant namespaces
-type: application
-version: 0.1.0
-appVersion: "RELEASE.2025-04-22T22-12-26Z"

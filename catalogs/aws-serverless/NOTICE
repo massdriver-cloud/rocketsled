@@ -1,0 +1,4 @@
+The platforms, resource types and bundles in this catalog are copied from
+https://github.com/massdriver-catalogs/aws-software-factory (Apache License 2.0),
+trimmed to the pieces a serverless application needs. The bootstrap and
+catalog.yaml are Rocketsled's own.

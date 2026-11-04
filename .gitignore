@@ -9,3 +9,4 @@ rocketsled.yaml
 .env
 coverage.out
 .DS_Store
+/data/

@@ -3,6 +3,7 @@ package domain_test
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -14,166 +15,278 @@ import (
 	"github.com/massdriver-cloud/rocketsled/internal/store/memory"
 )
 
-var fixedTime = time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+var fixedTime = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 
-// shopProject is the blueprint every test shares: an app plus a database.
-func shopProject() *domain.Project {
+func awsCatalog() domain.Catalog {
+	return domain.Catalog{
+		ID: "aws-serverless", Name: "AWS Serverless", Cloud: "aws",
+		Platforms: []domain.PlatformType{{
+			ID: "aws-iam-role", Label: "AWS IAM Role",
+			Schema: map[string]any{
+				"required":   []any{"arn", "external_id"},
+				"properties": map[string]any{"arn": map[string]any{"title": "Role ARN"}, "external_id": map[string]any{"title": "External ID"}},
+			},
+		}},
+		ResourceTypes: []string{"aws-vpc"}, Bundles: []string{"shared-vpc", "http-api"},
+		Bootstrap: domain.Bootstrap{Project: "serverless", BaseEnvironment: "production"},
+		Dir:       "/catalogs/aws-serverless",
+	}
+}
+
+func project() *domain.Project {
 	return &domain.Project{
-		ID:   "shop",
-		Name: "Shop",
-		Components: []domain.Component{
-			{Slug: "api", Name: "API"},
-			{Slug: "db", Name: "Database"},
-		},
-		Environments: []domain.EnvironmentSummary{{ID: "shop-prod", Name: "Production"}},
+		ID: "serverless", Name: "AWS Serverless Platform",
+		Components: []domain.Component{{Slug: "api", Name: "HTTP API"}, {Slug: "app", Name: "Application"}},
+		Links:      []domain.Link{{From: "api", To: "app"}},
 	}
 }
 
-func appSchema() map[string]any {
-	return map[string]any{
-		"properties": map[string]any{
-			"image": map[string]any{"properties": map[string]any{"tag": map[string]any{"type": "string"}}},
-		},
-		"examples": []any{
-			map[string]any{"__name": "Small", "replicas": 1},
-			map[string]any{"__name": "Large", "replicas": 6},
-		},
-	}
-}
-
-func dbSchema() map[string]any {
-	return map[string]any{
-		"properties": map[string]any{"size": map[string]any{"type": "string"}},
-		"examples": []any{
-			map[string]any{"__name": "Development", "size": "small", "backups": map[string]any{"enabled": false}},
-			map[string]any{"__name": "Production", "size": "large", "backups": map[string]any{"enabled": true}},
-		},
-	}
-}
-
-func environment(id string, status string) *domain.Environment {
-	return &domain.Environment{
-		ID:        id,
-		Name:      id,
-		ProjectID: "shop",
+func liveEnv(id, status string) *domain.PlatformEnvironment {
+	return &domain.PlatformEnvironment{
+		ID: id, Name: id, ProjectID: "serverless",
 		Instances: []domain.PlatformInstance{
 			{
-				ID: id + "-api", ComponentSlug: "api", BundleName: "shop-api", Version: "1.2.0", Status: status,
-				Params:       map[string]any{"image": map[string]any{"repository": "ghcr.io/acme/shop", "tag": "old"}, "replicas": 2},
-				ParamsSchema: appSchema(),
+				ID: id + "-api", ComponentSlug: "api", BundleName: "http-api", Version: "0.0.0", Status: status,
+				ParamsSchema: map[string]any{"examples": []any{map[string]any{"__name": "Development", "throttle_rate": 50}, map[string]any{"__name": "Production", "throttle_rate": 1000}}},
+				Resources:    []domain.InstanceResource{{Field: "api", Name: "HTTP API", Payload: map[string]any{"endpoint": "https://abc.execute-api.us-east-1.amazonaws.com"}}},
 			},
 			{
-				ID: id + "-db", ComponentSlug: "db", BundleName: "aws-postgres", Version: "3.0.1", Status: status,
-				Params:       map[string]any{"size": "medium", "backups": map[string]any{"enabled": true, "days": 7}},
-				ParamsSchema: dbSchema(),
+				ID: id + "-app", ComponentSlug: "app", BundleName: "lambda-function", Version: "0.0.0", Status: status,
+				ParamsSchema: map[string]any{"examples": []any{map[string]any{"__name": "Free Tier", "memory_mb": 256}}},
 			},
 		},
 	}
 }
 
 type harness struct {
-	svc      *domain.Service
-	platform *mocks.PlatformMock
-	scm      *mocks.SCMMock
-	builder  *mocks.BuilderMock
-	store    *memory.Store
-	user     *domain.User
-	ids      []string
-	link     domain.ProjectLink
+	svc       *domain.Service
+	platform  *mocks.PlatformMock
+	installer *mocks.InstallerMock
+	store     *memory.Store
+	user      *domain.User
+	creds     []domain.Credential
+	ids       []string
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, mode domain.AccountMode) *harness {
 	t.Helper()
 	h := &harness{
-		platform: &mocks.PlatformMock{},
-		scm:      &mocks.SCMMock{},
-		builder:  &mocks.BuilderMock{},
-		store:    memory.New(),
-		link:     domain.ProjectLink{ID: "shop", BaseEnvironment: "prod", ImageTagParam: "image.tag"},
-		user:     &domain.User{ID: "github:1", Provider: domain.ProviderGitHub, Login: "alice"},
-		ids:      []string{"id-1", "id-2", "id-3", "id-4", "id-5", "id-6"},
+		platform:  &mocks.PlatformMock{},
+		installer: &mocks.InstallerMock{},
+		store:     memory.New(),
+		user:      &domain.User{ID: "dev:cory", Provider: domain.ProviderDev, Login: "cory", Name: "Cory"},
 	}
-	h.scm.ProviderFunc = func() domain.Provider { return domain.ProviderGitHub }
-	h.scm.CloneURLFunc = func(repo domain.Repo, token string) string {
-		return "https://x-access-token:" + token + "@github.com/" + repo.FullName + ".git"
+	for i := 0; i < 20; i++ {
+		h.ids = append(h.ids, "id-"+string(rune('a'+i)))
 	}
-	h.platform.GetProjectFunc = func(_ context.Context, id string) (*domain.Project, error) {
-		if id != "shop" {
-			return nil, domain.ErrNotFound
-		}
-		return shopProject(), nil
+	h.platform.PingFunc = func(context.Context) (string, error) { return "RocketSled Test", nil }
+	h.platform.GetProjectFunc = func(context.Context, string) (*domain.Project, error) { return project(), nil }
+	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.PlatformEnvironment, error) {
+		return liveEnv(id, "INITIALIZED"), nil
 	}
-	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.Environment, error) {
-		return environment(id, "PROVISIONED"), nil
+	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
+		return liveEnv("serverless-"+req.ID, "INITIALIZED"), nil
 	}
-
+	h.platform.CreateResourceFunc = func(context.Context, string, string, map[string]any) (string, error) { return "res-role", nil }
+	h.platform.CreateServiceAccountFunc = func(context.Context, string) (string, error) { return "md_sa_token", nil }
+	h.installer.InstallFunc = func(_ context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
+		_, _ = io.WriteString(req.Log, "==> publishing\n")
+		return &domain.InstallResult{ProjectID: "serverless", Environments: map[string]string{"production": "serverless-production"}, State: []byte(`{"version":4}`)}, nil
+	}
+	scm := &mocks.SCMMock{ProviderFunc: func() domain.Provider { return domain.ProviderDev }}
 	require.NoError(t, h.store.UpsertUser(context.Background(), h.user))
-	require.NoError(t, h.store.SaveCredential(context.Background(), h.user.ID, "gh-token"))
 
-	return h.build(t)
-}
-
-// build wires the service; tests that change h.link call it again.
-func (h *harness) build(t *testing.T) *harness {
-	t.Helper()
 	svc, err := domain.NewService(domain.Options{
-		Platform:      h.platform,
-		Store:         h.store,
-		SCMs:          []domain.SCM{h.scm},
-		Projects:      []domain.ProjectLink{h.link},
-		Builder:       h.builder,
-		BaseURL:       "https://sled.example.com/",
-		WebhookSecret: "hook-secret",
-		RunAsync:      func(f func()) { f() },
-		Now:           func() time.Time { return fixedTime },
-		NewID: func() string {
-			id := h.ids[0]
-			h.ids = h.ids[1:]
-			return id
+		Platforms: func(c domain.Credential) domain.Platform {
+			h.creds = append(h.creds, c)
+			return h.platform
 		},
+		Store:            h.store,
+		SCMs:             []domain.SCM{scm},
+		Installer:        h.installer,
+		Catalogs:         []domain.Catalog{awsCatalog()},
+		Mode:             mode,
+		SharedCredential: domain.Credential{URL: "https://api.massdriver.cloud", OrganizationID: "rs-shared", APIKey: "md_shared"},
+		OrgCreator:       domain.Credential{URL: "https://api.massdriver.cloud", APIKey: "md_pat"},
+		DataDir:          t.TempDir(),
+		StableReleases:   true,
+		RunAsync:         func(f func()) { f() },
+		Now:              func() time.Time { return fixedTime },
+		NewID:            func() string { id := h.ids[0]; h.ids = h.ids[1:]; return id },
+		NewOrgID:         func() string { return "rs-misty-river-42" },
 	})
 	require.NoError(t, err)
 	h.svc = svc
 	return h
 }
 
-func (h *harness) latestDeploy(t *testing.T, instanceID string) domain.Deploy {
+func (h *harness) signedUp(t *testing.T) *domain.Account {
 	t.Helper()
-	deploys, err := h.store.ListDeploys(context.Background(), instanceID, 1)
+	a, err := h.svc.CreateAccount(context.Background(), h.user, "")
 	require.NoError(t, err)
-	require.NotEmpty(t, deploys)
-	return deploys[0]
+	return a
 }
 
-func (h *harness) linkRepo(t *testing.T) *domain.Stack {
+func (h *harness) installed(t *testing.T) *domain.Account {
 	t.Helper()
-	h.scm.GetRepoFunc = func(_ context.Context, token, fullName string) (*domain.Repo, error) {
-		assert.Equal(t, "gh-token", token)
-		return &domain.Repo{Provider: domain.ProviderGitHub, ExternalID: "42", FullName: fullName, URL: "https://github.com/" + fullName, DefaultBranch: "main"}, nil
-	}
-	h.scm.CreateWebhookFunc = func(_ context.Context, _, _, callbackURL, secret string) (string, error) {
-		assert.Equal(t, "https://sled.example.com/hooks/github", callbackURL)
-		assert.Equal(t, "hook-secret", secret)
-		return "hook-7", nil
-	}
-	stack, _, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{RepoFullName: "acme/shop", ProjectID: "shop"})
+	a := h.signedUp(t)
+	_, err := h.svc.InstallCatalog(context.Background(), a, "aws-serverless")
 	require.NoError(t, err)
-	return stack
+	a, err = h.store.GetAccount(context.Background(), a.ID)
+	require.NoError(t, err)
+	return a
 }
 
-func TestListProjectsEnrichesComponentsFromBaseEnvironment(t *testing.T) {
-	h := newHarness(t)
-
-	projects, err := h.svc.ListProjects(context.Background())
+func (h *harness) ready(t *testing.T) *domain.Account {
+	t.Helper()
+	a := h.installed(t)
+	a, err := h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
 	require.NoError(t, err)
-	require.Len(t, projects, 1)
+	return a
+}
 
-	assert.Equal(t, "api", projects[0].AppComponent)
-	assert.Equal(t, "shop-prod", h.platform.GetEnvironmentCalls()[0].EnvironmentID)
-	db := projects[0].Project.Components[1]
-	assert.Equal(t, "aws-postgres", db.Bundle.Name)
-	assert.Equal(t, "3.0.1", db.Bundle.Version)
-	assert.Equal(t, []string{"Development", "Production"}, presetNames(db.Bundle.Presets))
+func TestSharedModeBindsAccountsToTheConfiguredOrganization(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+
+	a := h.signedUp(t)
+
+	assert.Equal(t, "Cory", a.Name)
+	assert.Equal(t, "rs-shared", a.OrganizationID)
+	assert.Equal(t, "RocketSled Test", a.OrganizationName)
+	assert.Equal(t, domain.AccountStatusNew, a.Status)
+	cred, err := h.store.GetAccountCredential(context.Background(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "md_shared", cred.APIKey)
+	assert.Empty(t, h.platform.CreateOrganizationCalls())
+
+	again, err := h.svc.CreateAccount(context.Background(), h.user, "ignored")
+	require.NoError(t, err)
+	assert.Equal(t, a.ID, again.ID, "signing up twice returns the same account")
+}
+
+func TestOrganizationModeCreatesAnOrgAndServiceAccount(t *testing.T) {
+	h := newHarness(t, domain.AccountModeOrganization)
+
+	a := h.signedUp(t)
+
+	require.Len(t, h.platform.CreateOrganizationCalls(), 1)
+	assert.Equal(t, "rs-misty-river-42", h.platform.CreateOrganizationCalls()[0].ID)
+	assert.Contains(t, h.platform.CreateOrganizationCalls()[0].Name, "RocketSled ")
+	assert.Equal(t, "rs-misty-river-42", a.OrganizationID)
+	cred, err := h.store.GetAccountCredential(context.Background(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "md_sa_token", cred.APIKey, "the account uses the new service account, not the creator's PAT")
+	assert.Equal(t, domain.Credential{URL: "https://api.massdriver.cloud", APIKey: "md_pat"}, h.creds[0], "the organization is created with the creator credential")
+	assert.Equal(t, "rs-misty-river-42", h.creds[1].OrganizationID, "the service account is created inside the new organization")
+}
+
+func TestInstallCatalogRunsTheInstallerAndRecordsTheProject(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.signedUp(t)
+
+	queued, err := h.svc.InstallCatalog(context.Background(), a, "aws-serverless")
+	require.NoError(t, err)
+	assert.Equal(t, domain.AccountStatusInstalling, queued.Status, "the request returns before the install finishes")
+
+	req := h.installer.InstallCalls()[0].Req
+	assert.Equal(t, "aws-serverless", req.Catalog.ID)
+	assert.Equal(t, "md_shared", req.Credential.APIKey)
+	assert.True(t, req.Stable)
+	assert.Contains(t, req.WorkDir, a.ID)
+
+	got, err := h.store.GetAccount(context.Background(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AccountStatusNeedsCredentials, got.Status)
+	assert.Equal(t, "serverless", got.ProjectID)
+	assert.Equal(t, "serverless-production", got.BaseEnvironmentID)
+	assert.Contains(t, got.InstallLog, "==> publishing")
+	state, err := h.store.GetBootstrapState(context.Background(), a.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"version":4}`, string(state))
+
+	_, err = h.svc.InstallCatalog(context.Background(), got, "aws-serverless")
+	require.ErrorIs(t, err, domain.ErrConflict, "a second install is refused once one succeeded")
+}
+
+func TestInstallFailureKeepsLogAndAllowsRetryWithState(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.signedUp(t)
+	h.installer.InstallFunc = func(_ context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
+		_, _ = io.WriteString(req.Log, "tofu apply: boom\n")
+		return &domain.InstallResult{State: []byte(`{"partial":true}`)}, errors.New("tofu apply: exit status 1")
+	}
+
+	_, err := h.svc.InstallCatalog(context.Background(), a, "aws-serverless")
+	require.NoError(t, err)
+	got, _ := h.store.GetAccount(context.Background(), a.ID)
+	assert.Equal(t, domain.AccountStatusFailed, got.Status)
+	assert.Contains(t, got.InstallError, "tofu apply")
+	assert.Contains(t, got.InstallLog, "boom")
+
+	h.installer.InstallFunc = func(_ context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
+		assert.JSONEq(t, `{"partial":true}`, string(req.State), "the retry converges from the saved state")
+		return &domain.InstallResult{ProjectID: "serverless", Environments: map[string]string{"production": "serverless-production"}}, nil
+	}
+	_, err = h.svc.InstallCatalog(context.Background(), got, "aws-serverless")
+	require.NoError(t, err)
+	got, _ = h.store.GetAccount(context.Background(), a.ID)
+	assert.Equal(t, domain.AccountStatusNeedsCredentials, got.Status)
+	assert.Empty(t, got.InstallError)
+}
+
+func TestInstallRejectsUnknownCatalog(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.signedUp(t)
+	_, err := h.svc.InstallCatalog(context.Background(), a, "gcp-moon")
+	var verr *domain.ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "catalogId", verr.Field)
+}
+
+func TestProvidePlatformCreatesTheResourceAndPinsIt(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.installed(t)
+
+	reqs, err := h.svc.PlatformRequirements(a)
+	require.NoError(t, err)
+	require.Len(t, reqs, 1)
+	assert.False(t, reqs[0].Satisfied)
+	assert.Equal(t, "AWS IAM Role", reqs[0].Type.Label)
+
+	_, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x"})
+	var verr *domain.ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "external_id", verr.Field)
+	assert.Equal(t, "External ID is required", verr.Message)
+
+	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
+	require.NoError(t, err)
+
+	call := h.platform.CreateResourceCalls()[0]
+	assert.Equal(t, "aws-iam-role", call.ResourceTypeID)
+	assert.Equal(t, "AWS IAM Role", call.Name, "the name defaults to the type's label")
+	assert.Equal(t, map[string]string{"aws-iam-role": "res-role"}, a.Platforms)
+	assert.Equal(t, domain.AccountStatusReady, a.Status)
+	require.Len(t, h.platform.SetEnvironmentDefaultCalls(), 1)
+	assert.Equal(t, "serverless-production", h.platform.SetEnvironmentDefaultCalls()[0].EnvironmentID)
+	assert.Equal(t, "res-role", h.platform.SetEnvironmentDefaultCalls()[0].ResourceID)
+
+	reqs, _ = h.svc.PlatformRequirements(a)
+	assert.True(t, reqs[0].Satisfied)
+}
+
+func TestProjectViewReadsPresetsFromTheBaseEnvironment(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.ready(t)
+
+	view, err := h.svc.Project(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, "AWS Serverless Platform", view.Project.Name)
+	assert.Equal(t, "aws-serverless", view.Catalog.ID)
+	assert.Equal(t, "http-api", view.Project.Components[0].Bundle.Name)
+	assert.Equal(t, []string{"Development", "Production"}, presetNames(view.Project.Components[0].Bundle.Presets))
+	assert.Equal(t, "serverless-production", h.platform.GetEnvironmentCalls()[0].EnvironmentID)
+	assert.Empty(t, view.Environments)
 }
 
 func presetNames(ps []domain.Preset) []string {
@@ -184,494 +297,138 @@ func presetNames(ps []domain.Preset) []string {
 	return out
 }
 
-func TestCreateStackRejectsProjectsNotOptedIn(t *testing.T) {
-	h := newHarness(t)
-
-	_, _, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{RepoFullName: "acme/shop", ProjectID: "payments"})
-
-	var verr *domain.ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "projectId", verr.Field)
-}
-
-func TestCreateStackLinksRepoAndRegistersWebhook(t *testing.T) {
-	h := newHarness(t)
-
-	stack := h.linkRepo(t)
-
-	assert.Equal(t, "shop", stack.Name, "name defaults to the repository name")
-	assert.Equal(t, "acme/shop", stack.Repo.FullName)
-	assert.Equal(t, "hook-7", stack.WebhookID)
-	assert.NotEmpty(t, stack.DeployTokenHash)
-	assert.Equal(t, fixedTime, stack.CreatedAt)
-
-	stacks, err := h.svc.ListStacks(context.Background())
-	require.NoError(t, err)
-	assert.Len(t, stacks, 1)
-}
-
-func TestCreateStackSurvivesWebhookFailure(t *testing.T) {
-	h := newHarness(t)
-	h.scm.GetRepoFunc = func(context.Context, string, string) (*domain.Repo, error) {
-		return &domain.Repo{Provider: domain.ProviderGitHub, FullName: "acme/shop", DefaultBranch: "main"}, nil
-	}
-	h.scm.CreateWebhookFunc = func(context.Context, string, string, string, string) (string, error) {
-		return "", errors.New("403 admin rights required")
-	}
-
-	stack, token, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{Name: "Shop", RepoFullName: "acme/shop", ProjectID: "shop"})
-	require.NoError(t, err)
-	assert.Empty(t, stack.WebhookID)
-	assert.Contains(t, token, "rsd_")
-}
-
-func TestCreateInstanceValidatesSlugAndPresets(t *testing.T) {
-	h := newHarness(t)
-	stack := h.linkRepo(t)
-
-	_, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "Bad-Slug"})
-	var verr *domain.ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "slug", verr.Field)
-
-	_, err = h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{
-		Slug: "pr42", Presets: map[string]string{"db": "Gigantic"},
-	})
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "presets.db", verr.Field)
-	assert.Contains(t, verr.Message, `aws-postgres has no preset "Gigantic"`)
-
-	_, err = h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{
-		Slug: "pr42", Presets: map[string]string{"cache": "Small"},
-	})
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "presets.cache", verr.Field)
-	assert.Empty(t, h.platform.ForkEnvironmentCalls(), "nothing is forked until input is valid")
-}
-
-func TestCreateInstanceForksAppliesPresetsAndDeploys(t *testing.T) {
-	h := newHarness(t)
-	stack := h.linkRepo(t)
-	h.scm.BranchHeadFunc = func(_ context.Context, _, fullName, branch string) (string, error) {
-		assert.Equal(t, "acme/shop", fullName)
-		assert.Equal(t, "feature/checkout", branch)
-		return "abcdef1234567890", nil
-	}
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		assert.Equal(t, "shop-prod", req.ParentEnvironmentID)
-		assert.Equal(t, "pr42", req.ID)
-		assert.Equal(t, "Checkout preview", req.Name)
+func TestCreateEnvironmentForksConfiguresPinsAndDeploys(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.ready(t)
+	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
+		assert.Equal(t, "serverless-production", req.ParentEnvironmentID)
+		assert.Equal(t, "dev", req.ID)
+		assert.Equal(t, "Development", req.Name)
 		assert.True(t, req.CopyEnvironmentDefaults)
-		return environment("shop-pr42", "INITIALIZED"), nil
+		return liveEnv("serverless-dev", "INITIALIZED"), nil
 	}
 
-	inst, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{
-		Slug:    "pr42",
-		Name:    "Checkout preview",
-		Branch:  "feature/checkout",
-		Presets: map[string]string{"db": "Development"},
+	env, err := h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{
+		Slug: "dev", Name: "Development", Presets: map[string]string{"api": "Production"},
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "shop-pr42", inst.EnvironmentID)
-	assert.Equal(t, domain.InstanceStateLaunching, inst.State)
-	assert.Equal(t, map[string]string{"db": "Development"}, inst.Presets)
+	assert.Equal(t, "serverless-dev", env.EnvironmentID)
+	assert.Equal(t, domain.EnvironmentStateDeploying, env.State)
+	assert.Equal(t, map[string]string{"api": "Production", "app": "Free Tier"}, env.Presets, "components without a choice get the bundle's first preset")
 
 	copies := h.platform.CopyInstanceCalls()
 	require.Len(t, copies, 2)
-	assert.Equal(t, "shop-prod-api", copies[0].SourceID)
-	assert.Equal(t, "shop-pr42-api", copies[0].DestinationID)
-	assert.Equal(t, map[string]any{"image": map[string]any{"tag": "abcdef1234567890"}}, copies[0].Overrides)
-	assert.Equal(t, "shop-prod-db", copies[1].SourceID)
-	assert.Equal(t, "shop-pr42-db", copies[1].DestinationID)
-	assert.Equal(t, map[string]any{"size": "small", "backups": map[string]any{"enabled": false}}, copies[1].Overrides,
-		"preset params are sent as overrides with __name stripped")
+	assert.Equal(t, "serverless-production-api", copies[0].SourceID)
+	assert.Equal(t, "serverless-dev-api", copies[0].DestinationID)
+	assert.Equal(t, map[string]any{"throttle_rate": 1000}, copies[0].Overrides, "the preset is sent with __name stripped")
+	assert.Equal(t, map[string]any{"memory_mb": 256}, copies[1].Overrides)
 
+	defaults := h.platform.SetEnvironmentDefaultCalls()
+	assert.Equal(t, "serverless-dev", defaults[len(defaults)-1].EnvironmentID)
+	assert.Equal(t, "res-role", defaults[len(defaults)-1].ResourceID)
 	require.Len(t, h.platform.DeployEnvironmentCalls(), 1)
-	assert.Equal(t, "shop-pr42", h.platform.DeployEnvironmentCalls()[0].EnvironmentID)
+	assert.Equal(t, "serverless-dev", h.platform.DeployEnvironmentCalls()[0].EnvironmentID)
 
-	deploys, err := h.store.ListDeploys(context.Background(), inst.ID, 10)
-	require.NoError(t, err)
-	require.Len(t, deploys, 1)
-	assert.Equal(t, 1, deploys[0].Number)
-	assert.Equal(t, domain.TriggerLaunch, deploys[0].Trigger)
-	assert.Equal(t, "abcdef1234567890", deploys[0].SHA)
-	assert.Equal(t, domain.DeployStatusRunning, deploys[0].Status)
+	runs, _ := h.store.ListRuns(context.Background(), env.ID, 5)
+	require.Len(t, runs, 1)
+	assert.Equal(t, domain.RunStatusRunning, runs[0].Status)
+	assert.Equal(t, domain.TriggerCreate, runs[0].Trigger)
 }
 
-func TestCreateInstanceDefaultsBranchAndRejectsDuplicateSlug(t *testing.T) {
-	h := newHarness(t)
-	stack := h.linkRepo(t)
-	h.scm.BranchHeadFunc = func(_ context.Context, _, _, branch string) (string, error) {
-		assert.Equal(t, "main", branch)
-		return "1111111", nil
-	}
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		return environment("shop-"+req.ID, "INITIALIZED"), nil
-	}
+func TestCreateEnvironmentValidation(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.installed(t)
 
-	inst, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "staging"})
+	_, err := h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "dev"})
+	require.ErrorIs(t, err, domain.ErrConflict, "no environments before the credential is provided")
+
+	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
 	require.NoError(t, err)
-	assert.Equal(t, "main", inst.Branch)
-	assert.Equal(t, "staging", inst.Name)
-
-	_, err = h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "staging"})
-	require.ErrorIs(t, err, domain.ErrConflict)
-}
-
-func TestCreateInstanceRecordsFailedLaunch(t *testing.T) {
-	h := newHarness(t)
-	stack := h.linkRepo(t)
-	h.scm.BranchHeadFunc = func(context.Context, string, string, string) (string, error) { return "2222222", nil }
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		return environment("shop-"+req.ID, "INITIALIZED"), nil
-	}
-	h.platform.DeployEnvironmentFunc = func(context.Context, string) error {
-		return errors.New("unfulfilled dependency: aws-iam-role")
-	}
-
-	inst, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "dev"})
-	require.NoError(t, err, "the launch request succeeds; the pipeline fails afterwards")
-
-	stored, err := h.store.GetInstance(context.Background(), inst.ID)
-	require.NoError(t, err)
-	assert.Equal(t, domain.InstanceStateFailed, stored.State, "the record is kept so the user can destroy or retry")
-
-	run := h.latestDeploy(t, inst.ID)
-	assert.Equal(t, domain.DeployStatusFailed, run.Status)
-	assert.Contains(t, run.Message, "aws-iam-role")
-}
-
-func launched(t *testing.T, h *harness) (*domain.Stack, *domain.Instance) {
-	t.Helper()
-	stack := h.linkRepo(t)
-	h.scm.BranchHeadFunc = func(context.Context, string, string, string) (string, error) { return "3333333", nil }
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		return environment("shop-"+req.ID, "INITIALIZED"), nil
-	}
-	inst, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "staging", Branch: "main"})
-	require.NoError(t, err)
-	return stack, inst
-}
-
-func TestDeployResolvesBranchHeadAndCreatesDeployment(t *testing.T) {
-	h := newHarness(t)
-	_, inst := launched(t, h)
-	h.scm.BranchHeadFunc = func(context.Context, string, string, string) (string, error) { return "4444444", nil }
-	h.platform.CreateDeploymentFunc = func(_ context.Context, instanceID string, params map[string]any, message string) (string, error) {
-		assert.Equal(t, "shop-staging-api", instanceID)
-		assert.Equal(t, map[string]any{
-			"image":    map[string]any{"repository": "ghcr.io/acme/shop", "tag": "4444444"},
-			"replicas": 2,
-		}, params, "the full current params are resent with only the tag changed")
-		assert.Equal(t, "rocketsled run #2: main@4444444", message)
-		return "dep-uuid", nil
-	}
-
-	d, err := h.svc.Deploy(context.Background(), inst.ID, domain.DeployInput{Actor: h.user})
-	require.NoError(t, err)
-
-	assert.Equal(t, 2, d.Number)
-	assert.Equal(t, domain.TriggerManual, d.Trigger)
-	assert.Equal(t, "4444444", d.SHA)
-	assert.Equal(t, domain.DeployStatusQueued, d.Status, "the response is the accepted request")
-
-	run := h.latestDeploy(t, inst.ID)
-	assert.Equal(t, []string{"dep-uuid"}, run.PlatformDeploymentIDs)
-	assert.Equal(t, domain.DeployStatusRunning, run.Status)
-}
-
-func TestDeployWithoutActorRequiresSHA(t *testing.T) {
-	h := newHarness(t)
-	_, inst := launched(t, h)
-
-	_, err := h.svc.Deploy(context.Background(), inst.ID, domain.DeployInput{Trigger: domain.TriggerWebhook})
-
 	var verr *domain.ValidationError
+	_, err = h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "Dev!"})
 	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "sha", verr.Field)
+	assert.Equal(t, "slug", verr.Field)
+
+	_, err = h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "dev", Presets: map[string]string{"api": "Huge"}})
+	require.ErrorAs(t, err, &verr)
+	assert.Equal(t, "presets.api", verr.Field)
+	assert.Empty(t, h.platform.ForkEnvironmentCalls(), "nothing is forked until input is valid")
 }
 
-func TestHandlePushDeploysOnlyInstancesFollowingTheBranch(t *testing.T) {
-	h := newHarness(t)
-	stack, _ := launched(t, h)
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		return environment("shop-"+req.ID, "INITIALIZED"), nil
-	}
-	_, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "pr7", Branch: "feature/x"})
-	require.NoError(t, err)
-	h.platform.CreateDeploymentFunc = func(_ context.Context, instanceID string, params map[string]any, _ string) (string, error) {
-		tag, _ := domain.GetParam(params, "image.tag")
-		assert.Equal(t, "feedface", tag)
-		return "dep-" + instanceID, nil
-	}
+func TestDeployFailureMarksTheRunAndEnvironment(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.ready(t)
+	h.platform.DeployEnvironmentFunc = func(context.Context, string) error { return errors.New("unfulfilled dependency") }
 
-	deploys, err := h.svc.HandlePush(context.Background(), domain.PushEvent{
-		Provider: domain.ProviderGitHub, RepoFullName: "acme/shop", Branch: "feature/x", SHA: "feedface",
-	})
+	env, err := h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "dev"})
 	require.NoError(t, err)
-	require.Len(t, deploys, 1)
-	assert.Equal(t, domain.TriggerWebhook, deploys[0].Trigger)
-	assert.Equal(t, []string{"dep-shop-pr7-api"}, h.latestDeploy(t, deploys[0].InstanceID).PlatformDeploymentIDs)
 
-	none, err := h.svc.HandlePush(context.Background(), domain.PushEvent{Provider: domain.ProviderGitHub, RepoFullName: "acme/shop", Branch: "feature/x", Deleted: true})
-	require.NoError(t, err)
-	assert.Empty(t, none)
+	stored, _ := h.store.GetEnvironment(context.Background(), env.ID)
+	assert.Equal(t, domain.EnvironmentStateFailed, stored.State)
+	runs, _ := h.store.ListRuns(context.Background(), env.ID, 1)
+	assert.Equal(t, domain.RunStatusFailed, runs[0].Status)
+	assert.Contains(t, runs[0].Message, "unfulfilled dependency")
 }
 
-func TestDeployFromCIChecksTokenAndBranch(t *testing.T) {
-	h := newHarness(t)
-	h.scm.GetRepoFunc = func(_ context.Context, _, fullName string) (*domain.Repo, error) {
-		return &domain.Repo{Provider: domain.ProviderGitHub, FullName: fullName, DefaultBranch: "main"}, nil
-	}
-	stack, token, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{RepoFullName: "acme/shop", ProjectID: "shop"})
+func TestEnvironmentStatusRefreshesAndHidesParams(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.ready(t)
+	env, err := h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "dev"})
 	require.NoError(t, err)
-	h.scm.BranchHeadFunc = func(context.Context, string, string, string) (string, error) { return "5555555", nil }
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		return environment("shop-"+req.ID, "INITIALIZED"), nil
-	}
-	_, err = h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "staging", Branch: "main"})
-	require.NoError(t, err)
-	h.platform.CreateDeploymentFunc = func(_ context.Context, _ string, params map[string]any, _ string) (string, error) {
-		tag, _ := domain.GetParam(params, "image.tag")
-		assert.Equal(t, "v1.4.0", tag)
-		return "dep-ci", nil
+	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.PlatformEnvironment, error) {
+		e := liveEnv(id, "PROVISIONED")
+		e.Instances[0].Params = map[string]any{"secret": "x"}
+		return e, nil
 	}
 
-	_, err = h.svc.DeployFromCI(context.Background(), stack.ID, "rsd_wrong", domain.DeployInput{Ref: "main", SHA: "6666666"})
-	require.ErrorIs(t, err, domain.ErrForbidden)
-
-	deploys, err := h.svc.DeployFromCI(context.Background(), stack.ID, token, domain.DeployInput{Ref: "main", SHA: "6666666", ImageTag: "v1.4.0"})
+	view, err := h.svc.EnvironmentStatus(context.Background(), a, env.ID)
 	require.NoError(t, err)
-	require.Len(t, deploys, 1)
-	assert.Equal(t, domain.TriggerCI, deploys[0].Trigger)
-	assert.Equal(t, "v1.4.0", deploys[0].ImageTag)
+	assert.Equal(t, domain.EnvironmentStateRunning, view.Environment.State)
+	assert.Equal(t, domain.RunStatusSucceeded, view.Runs[0].Status)
+	assert.Nil(t, view.Platform.Instances[0].Params)
+	assert.Equal(t, "https://abc.execute-api.us-east-1.amazonaws.com", view.Platform.Instances[0].Resources[0].Payload["endpoint"])
+
+	other := &domain.User{ID: "dev:mallory", Provider: domain.ProviderDev, Login: "mallory"}
+	require.NoError(t, h.store.UpsertUser(context.Background(), other))
+	otherAccount, err := h.svc.CreateAccount(context.Background(), other, "")
+	require.NoError(t, err)
+	_, err = h.svc.EnvironmentStatus(context.Background(), otherAccount, env.ID)
+	require.ErrorIs(t, err, domain.ErrNotFound, "accounts cannot see each other's environments")
 }
 
-func TestInstanceStatusRefreshesRunsAndState(t *testing.T) {
-	h := newHarness(t)
-	_, inst := launched(t, h)
-	h.platform.CreateDeploymentFunc = func(context.Context, string, map[string]any, string) (string, error) { return "dep-1", nil }
-	_, err := h.svc.Deploy(context.Background(), inst.ID, domain.DeployInput{SHA: "7777777"})
-	require.NoError(t, err)
-	h.platform.GetDeploymentFunc = func(_ context.Context, id string) (*domain.DeploymentSummary, error) {
-		return &domain.DeploymentSummary{ID: id, Status: "COMPLETED"}, nil
-	}
-
-	view, err := h.svc.InstanceStatus(context.Background(), inst.ID)
+func TestDeployAndDestroyEnvironment(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.ready(t)
+	env, err := h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "dev"})
 	require.NoError(t, err)
 
-	assert.Equal(t, domain.InstanceStateRunning, view.Instance.State, "all packages PROVISIONED")
-	require.Len(t, view.Deploys, 2)
-	assert.Equal(t, 2, view.Deploys[0].Number)
-	assert.Equal(t, domain.DeployStatusSucceeded, view.Deploys[0].Status, "refreshed from the platform deployment")
-	assert.Equal(t, domain.DeployStatusSucceeded, view.Deploys[1].Status, "launch run derived from package statuses")
-	assert.Nil(t, view.Environment.Instances[0].Params, "params are not exposed in status views")
-}
-
-func TestInstanceStatusMarksFailedPackages(t *testing.T) {
-	h := newHarness(t)
-	_, inst := launched(t, h)
-	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.Environment, error) {
-		env := environment(id, "PROVISIONED")
-		env.Instances[1].Status = "FAILED"
-		return env, nil
-	}
-
-	view, err := h.svc.InstanceStatus(context.Background(), inst.ID)
+	run, err := h.svc.DeployEnvironment(context.Background(), h.user, a, env.ID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.InstanceStateFailed, view.Instance.State)
-	assert.Equal(t, domain.DeployStatusFailed, view.Deploys[0].Status)
-}
+	assert.Equal(t, 2, run.Number)
+	assert.Len(t, h.platform.DeployEnvironmentCalls(), 2)
 
-func TestDestroyInstanceDecommissionsThenDeletesWhenEmpty(t *testing.T) {
-	h := newHarness(t)
-	_, inst := launched(t, h)
-
-	got, err := h.svc.DestroyInstance(context.Background(), inst.ID)
+	got, err := h.svc.DestroyEnvironment(context.Background(), a, env.ID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.InstanceStateDecommissioning, got.State)
-	require.Len(t, h.platform.DecommissionEnvironmentCalls(), 1)
-	assert.Equal(t, "shop-staging", h.platform.DecommissionEnvironmentCalls()[0].EnvironmentID)
-
-	_, err = h.svc.Deploy(context.Background(), inst.ID, domain.DeployInput{SHA: "8888888"})
+	assert.Equal(t, domain.EnvironmentStateDecommissioning, got.State)
+	_, err = h.svc.DeployEnvironment(context.Background(), h.user, a, env.ID)
 	require.ErrorIs(t, err, domain.ErrConflict)
 
-	view, err := h.svc.InstanceStatus(context.Background(), inst.ID)
-	require.NoError(t, err)
-	assert.False(t, view.Gone, "packages still PROVISIONED")
-	assert.Empty(t, h.platform.DeleteEnvironmentCalls())
-
-	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.Environment, error) {
-		return environment(id, "DECOMMISSIONED"), nil
+	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.PlatformEnvironment, error) {
+		return liveEnv(id, "DECOMMISSIONED"), nil
 	}
-	view, err = h.svc.InstanceStatus(context.Background(), inst.ID)
+	view, err := h.svc.EnvironmentStatus(context.Background(), a, env.ID)
 	require.NoError(t, err)
 	assert.True(t, view.Gone)
-	require.Len(t, h.platform.DeleteEnvironmentCalls(), 1)
-	_, err = h.store.GetInstance(context.Background(), inst.ID)
-	assert.ErrorIs(t, err, domain.ErrNotFound)
+	assert.Len(t, h.platform.DeleteEnvironmentCalls(), 1)
+	_, err = h.store.GetEnvironment(context.Background(), env.ID)
+	require.ErrorIs(t, err, domain.ErrNotFound)
 }
 
-func TestDeleteStackRefusesWhileInstancesExist(t *testing.T) {
-	h := newHarness(t)
-	stack, _ := launched(t, h)
-
-	err := h.svc.DeleteStack(context.Background(), h.user, stack.ID)
-	require.ErrorIs(t, err, domain.ErrConflict)
-}
-
-func TestSignInStoresUserAndToken(t *testing.T) {
-	h := newHarness(t)
-	h.scm.ExchangeFunc = func(_ context.Context, code, redirect string) (string, error) {
-		assert.Equal(t, "the-code", code)
-		assert.Equal(t, "https://sled.example.com/auth/github/callback", redirect)
-		return "fresh-token", nil
+func TestNewOrganizationIDFitsTheLimit(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		id := domain.NewOrganizationID()
+		assert.LessOrEqual(t, len(id), 20, id)
+		assert.Regexp(t, `^rs-[a-z]+-[a-z]+-\d{2}$|^rs-[a-z]+-\d{2}$`, id)
 	}
-	h.scm.CurrentUserFunc = func(_ context.Context, token string) (*domain.User, error) {
-		assert.Equal(t, "fresh-token", token)
-		return &domain.User{ProviderUserID: "99", Login: "bob", Name: "Bob"}, nil
-	}
-
-	u, err := h.svc.SignIn(context.Background(), domain.ProviderGitHub, "the-code", "https://sled.example.com/auth/github/callback")
-	require.NoError(t, err)
-	assert.Equal(t, "github:99", u.ID)
-	assert.Equal(t, fixedTime, u.CreatedAt)
-
-	tok, err := h.store.GetCredential(context.Background(), "github:99")
-	require.NoError(t, err)
-	assert.Equal(t, "fresh-token", tok)
-
-	_, err = h.svc.SignIn(context.Background(), domain.Provider("bitbucket"), "x", "y")
-	assert.ErrorIs(t, err, domain.ErrNotFound)
-}
-
-func TestClassifyDeployment(t *testing.T) {
-	cases := map[domain.DeploymentStatus]domain.DeployStatus{
-		"PENDING": domain.DeployStatusQueued, "PROPOSED": domain.DeployStatusQueued, "APPROVED": domain.DeployStatusQueued,
-		"RUNNING": domain.DeployStatusRunning, "COMPLETED": domain.DeployStatusSucceeded,
-		"FAILED": domain.DeployStatusFailed, "ABORTED": domain.DeployStatusFailed, "REJECTED": domain.DeployStatusFailed,
-	}
-	for in, want := range cases {
-		assert.Equal(t, want, domain.ClassifyDeployment(in), string(in))
-	}
-}
-
-func TestCreateStackValidatesPath(t *testing.T) {
-	h := newHarness(t)
-	h.scm.GetRepoFunc = func(_ context.Context, _, fullName string) (*domain.Repo, error) {
-		return &domain.Repo{Provider: domain.ProviderGitHub, FullName: fullName, DefaultBranch: "main"}, nil
-	}
-
-	_, _, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{RepoFullName: "acme/shop", ProjectID: "shop", Path: "../../etc"})
-	var verr *domain.ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "path", verr.Field)
-
-	stack, _, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{RepoFullName: "acme/shop", ProjectID: "shop", Path: "/example/hello-world/"})
-	require.NoError(t, err)
-	assert.Equal(t, "example/hello-world", stack.Path)
-}
-
-func withRegistry(t *testing.T) *harness {
-	t.Helper()
-	h := newHarness(t)
-	h.link.ImageRegistry = "123.dkr.ecr.us-west-2.amazonaws.com/{{stack}}"
-	h.link.ImageTagParam = "image_tag"
-	h.link.AppComponent = "api"
-	return h.build(t)
-}
-
-func TestLaunchBuildsImageBeforeConfiguringAndDeploying(t *testing.T) {
-	h := withRegistry(t)
-	h.scm.GetRepoFunc = func(_ context.Context, _, fullName string) (*domain.Repo, error) {
-		return &domain.Repo{Provider: domain.ProviderGitHub, FullName: fullName, URL: "https://github.com/" + fullName, DefaultBranch: "main"}, nil
-	}
-	stack, _, err := h.svc.CreateStack(context.Background(), h.user, domain.CreateStackInput{Name: "Hello World", RepoFullName: "acme/shop", ProjectID: "shop", Path: "example/hello-world"})
-	require.NoError(t, err)
-	h.scm.BranchHeadFunc = func(context.Context, string, string, string) (string, error) { return "c0ffee0000", nil }
-	h.platform.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.Environment, error) {
-		return environment("shop-"+req.ID, "INITIALIZED"), nil
-	}
-	var order []string
-	h.builder.BuildFunc = func(_ context.Context, req domain.BuildRequest) (*domain.BuildResult, error) {
-		order = append(order, "build")
-		assert.Equal(t, "https://x-access-token:gh-token@github.com/acme/shop.git", req.CloneURL)
-		assert.Equal(t, "c0ffee0000", req.SHA)
-		assert.Equal(t, "example/hello-world", req.Path)
-		assert.Equal(t, "123.dkr.ecr.us-west-2.amazonaws.com/hello-world:c0ffee0000", req.Image)
-		_, _ = req.Log.Write([]byte("Step 1/4 : FROM golang\n"))
-		return &domain.BuildResult{Image: req.Image, Digest: "sha256:beef"}, nil
-	}
-	h.platform.CopyInstanceFunc = func(context.Context, string, string, map[string]any) error {
-		order = append(order, "copy")
-		return nil
-	}
-	h.platform.DeployEnvironmentFunc = func(context.Context, string) error {
-		order = append(order, "deploy")
-		return nil
-	}
-
-	inst, err := h.svc.CreateInstance(context.Background(), h.user, stack.ID, domain.CreateInstanceInput{Slug: "dev"})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"build", "copy", "deploy"}, order)
-	assert.Equal(t, map[string]any{"image_tag": "c0ffee0000"}, h.platform.CopyInstanceCalls()[0].Overrides)
-	run := h.latestDeploy(t, inst.ID)
-	assert.Equal(t, domain.DeployStatusRunning, run.Status)
-	assert.Equal(t, "123.dkr.ecr.us-west-2.amazonaws.com/hello-world:c0ffee0000", run.Image)
-	assert.Equal(t, "c0ffee0000", run.ImageTag)
-	assert.Contains(t, run.Log, "Step 1/4")
-}
-
-func TestBuildFailureFailsTheRunAndKeepsTheLog(t *testing.T) {
-	h := withRegistry(t)
-	_, inst := launched(t, h)
-	h.builder.BuildFunc = func(_ context.Context, req domain.BuildRequest) (*domain.BuildResult, error) {
-		_, _ = req.Log.Write([]byte("no Dockerfile in \"app\"\n"))
-		return nil, errors.New("docker build: exit status 1")
-	}
-
-	d, err := h.svc.Deploy(context.Background(), inst.ID, domain.DeployInput{SHA: "feed0000"})
-	require.NoError(t, err)
-	assert.Equal(t, domain.DeployStatusBuilding, d.Status)
-
-	run := h.latestDeploy(t, inst.ID)
-	assert.Equal(t, domain.DeployStatusFailed, run.Status)
-	assert.Contains(t, run.Message, "docker build")
-	assert.Contains(t, run.Log, "no Dockerfile")
-	assert.Empty(t, h.platform.CreateDeploymentCalls(), "nothing is deployed when the build fails")
-}
-
-func TestDeployWithExplicitTagSkipsTheBuild(t *testing.T) {
-	h := withRegistry(t)
-	_, inst := launched(t, h)
-	h.platform.CreateDeploymentFunc = func(_ context.Context, _ string, params map[string]any, _ string) (string, error) {
-		tag, _ := domain.GetParam(params, "image_tag")
-		assert.Equal(t, "v9", tag)
-		return "dep-9", nil
-	}
-
-	_, err := h.svc.Deploy(context.Background(), inst.ID, domain.DeployInput{SHA: "abc", ImageTag: "v9"})
-	require.NoError(t, err)
-
-	assert.Len(t, h.builder.BuildCalls(), 1, "only the launch built an image")
-	run := h.latestDeploy(t, inst.ID)
-	assert.Equal(t, domain.DeployStatusRunning, run.Status)
-	assert.Equal(t, "v9", run.ImageTag)
-}
-
-func TestWebhookDeployBuildsWithTheStackOwnersCredential(t *testing.T) {
-	h := withRegistry(t)
-	_, inst := launched(t, h)
-	var cloneURL string
-	h.builder.BuildFunc = func(_ context.Context, req domain.BuildRequest) (*domain.BuildResult, error) {
-		cloneURL = req.CloneURL
-		return &domain.BuildResult{Image: req.Image}, nil
-	}
-
-	_, err := h.svc.HandlePush(context.Background(), domain.PushEvent{Provider: domain.ProviderGitHub, RepoFullName: "acme/shop", Branch: "main", SHA: "dead0000"})
-	require.NoError(t, err)
-	assert.Equal(t, "https://x-access-token:gh-token@github.com/acme/shop.git", cloneURL)
-	assert.Equal(t, domain.DeployStatusRunning, h.latestDeploy(t, inst.ID).Status)
 }

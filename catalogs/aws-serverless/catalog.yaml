@@ -1,0 +1,36 @@
+# A Rocketsled catalog: what gets published into a customer's organization and
+# how the first project is laid out.
+id: aws-serverless
+name: AWS Serverless
+cloud: aws
+tagline: Lambda functions behind an HTTP API, with DynamoDB and a private VPC.
+description: >-
+  A serverless platform on your own AWS account. Every environment gets an HTTP
+  API, a Lambda runtime for your application image, a DynamoDB table and a VPC,
+  all wired together. Costs nothing while idle.
+
+# Credential types the customer has to provide before anything deploys. Each one
+# is a platform resource type in platforms/; its schema becomes the form.
+platforms:
+  - aws-iam-role
+
+# Published in this order. Resource types before bundles.
+resource_types:
+  - aws-vpc
+  - aws-dynamodb-table
+  - aws-http-api
+  - aws-user-pool
+  - llm-endpoint
+bundles:
+  - shared-vpc
+  - dynamodb-table
+  - http-api
+  - lambda-function
+
+# What bootstrap/ creates. Rocketsled reads these back after `tofu apply`.
+bootstrap:
+  project: serverless
+  base_environment: production
+  # The component whose image follows the customer's application.
+  app_component: app
+  image_param: image_uri

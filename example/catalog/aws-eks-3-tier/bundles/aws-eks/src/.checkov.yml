@@ -1,8 +1,0 @@
-skip-check:
-  # Massdriver's provisioners (OpenTofu, Helm) run outside the VPC; the API
-  # endpoint has to be reachable publicly for any deploy to happen.
-  - CKV_AWS_39
-  - CKV_AWS_38
-  # Log group encryption uses the CloudWatch service key; a customer managed
-  # KMS key is outside this bundle's scope.
-  - CKV_AWS_158

@@ -8,12 +8,22 @@ import (
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
 )
 
+// Factory builds a Client per credential, satisfying domain.PlatformFactory.
+func Factory(c domain.Credential) domain.Platform {
+	url := c.URL
+	if url == "" {
+		url = "https://api.massdriver.cloud"
+	}
+	return New(url, c.OrganizationID, c.APIKey, nil)
+}
+
 const projectQuery = `
 query RocketsledProject($organizationId: ID!, $id: ID!) {
   project(organizationId: $organizationId, id: $id) {
     id name description
     environments(cursor: { limit: 100 }) { items { id name } }
     components { id name ociRepo { name } }
+    links { fromComponent { id } toComponent { id } }
   }
 }`
 
@@ -34,6 +44,14 @@ type gqlProject struct {
 			Name string `json:"name"`
 		} `json:"ociRepo"`
 	} `json:"components"`
+	Links []struct {
+		FromComponent struct {
+			ID string `json:"id"`
+		} `json:"fromComponent"`
+		ToComponent struct {
+			ID string `json:"id"`
+		} `json:"toComponent"`
+	} `json:"links"`
 }
 
 func (c *Client) GetProject(ctx context.Context, projectID string) (*domain.Project, error) {
@@ -47,9 +65,12 @@ func (c *Client) GetProject(ctx context.Context, projectID string) (*domain.Proj
 		return nil, &APIError{Code: "NOT_FOUND", Message: "project " + projectID + " not found"}
 	}
 	p := &domain.Project{
-		ID:          out.Project.ID,
-		Name:        out.Project.Name,
-		Description: out.Project.Description,
+		ID:           out.Project.ID,
+		Name:         out.Project.Name,
+		Description:  out.Project.Description,
+		Components:   []domain.Component{},
+		Links:        []domain.Link{},
+		Environments: []domain.EnvironmentSummary{},
 	}
 	for _, e := range out.Project.Environments.Items {
 		p.Environments = append(p.Environments, domain.EnvironmentSummary{ID: e.ID, Name: e.Name})
@@ -61,6 +82,9 @@ func (c *Client) GetProject(ctx context.Context, projectID string) (*domain.Proj
 		}
 		p.Components = append(p.Components, component)
 	}
+	for _, l := range out.Project.Links {
+		p.Links = append(p.Links, domain.Link{From: localID(l.FromComponent.ID, out.Project.ID), To: localID(l.ToComponent.ID, out.Project.ID)})
+	}
 	return p, nil
 }
 
@@ -69,17 +93,20 @@ func localID(full, parent string) string {
 	return strings.TrimPrefix(full, parent+"-")
 }
 
-const environmentQuery = `
-query RocketsledEnvironment($organizationId: ID!, $id: ID!) {
-  environment(organizationId: $organizationId, id: $id) {
+const environmentFields = `
     id name
     project { id }
     instances {
       id name status params paramsSchema resolvedVersion deployedVersion
       component { id }
       bundle { name }
+      resources { field resource { id name payload resourceType { id } } }
     }
-    unfulfilledDependencies { instance { id } field resourceType { id } }
+    unfulfilledDependencies { instance { id } field resourceType { id } }`
+
+const environmentQuery = `
+query RocketsledEnvironment($organizationId: ID!, $id: ID!) {
+  environment(organizationId: $organizationId, id: $id) {` + environmentFields + `
   }
 }`
 
@@ -103,6 +130,17 @@ type gqlEnvironment struct {
 		Bundle *struct {
 			Name string `json:"name"`
 		} `json:"bundle"`
+		Resources []struct {
+			Field    string `json:"field"`
+			Resource *struct {
+				ID           string         `json:"id"`
+				Name         string         `json:"name"`
+				Payload      map[string]any `json:"payload"`
+				ResourceType struct {
+					ID string `json:"id"`
+				} `json:"resourceType"`
+			} `json:"resource"`
+		} `json:"resources"`
 	} `json:"instances"`
 	UnfulfilledDependencies []struct {
 		Instance struct {
@@ -115,7 +153,7 @@ type gqlEnvironment struct {
 	} `json:"unfulfilledDependencies"`
 }
 
-func (c *Client) GetEnvironment(ctx context.Context, environmentID string) (*domain.Environment, error) {
+func (c *Client) GetEnvironment(ctx context.Context, environmentID string) (*domain.PlatformEnvironment, error) {
 	var out struct {
 		Environment *gqlEnvironment `json:"environment"`
 	}
@@ -128,8 +166,8 @@ func (c *Client) GetEnvironment(ctx context.Context, environmentID string) (*dom
 	return toEnvironment(out.Environment), nil
 }
 
-func toEnvironment(e *gqlEnvironment) *domain.Environment {
-	env := &domain.Environment{
+func toEnvironment(e *gqlEnvironment) *domain.PlatformEnvironment {
+	env := &domain.PlatformEnvironment{
 		ID:          e.ID,
 		Name:        e.Name,
 		ProjectID:   e.Project.ID,
@@ -146,9 +184,18 @@ func toEnvironment(e *gqlEnvironment) *domain.Environment {
 			Status:          in.Status,
 			Params:          in.Params,
 			ParamsSchema:    in.ParamsSchema,
+			Resources:       []domain.InstanceResource{},
 		}
 		if in.Bundle != nil {
 			pi.BundleName = in.Bundle.Name
+		}
+		for _, r := range in.Resources {
+			if r.Resource == nil {
+				continue
+			}
+			pi.Resources = append(pi.Resources, domain.InstanceResource{
+				Field: r.Field, Name: r.Resource.Name, ResourceType: r.Resource.ResourceType.ID, Payload: r.Resource.Payload,
+			})
 		}
 		env.Instances = append(env.Instances, pi)
 	}
@@ -165,20 +212,12 @@ mutation RocketsledFork($organizationId: ID!, $parentId: ID!, $input: ForkEnviro
   forkEnvironment(organizationId: $organizationId, parentId: $parentId, input: $input) {
     successful
     messages { field message code }
-    result {
-      id name
-      project { id }
-      instances {
-        id name status params paramsSchema resolvedVersion deployedVersion
-        component { id }
-        bundle { name }
-      }
-      unfulfilledDependencies { instance { id } field resourceType { id } }
+    result {` + environmentFields + `
     }
   }
 }`
 
-func (c *Client) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*domain.Environment, error) {
+func (c *Client) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 	var out struct {
 		ForkEnvironment payload[gqlEnvironment] `json:"forkEnvironment"`
 	}
@@ -190,7 +229,6 @@ func (c *Client) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*
 			"description":             req.Description,
 			"copyEnvironmentDefaults": req.CopyEnvironmentDefaults,
 			"copySecrets":             req.CopySecrets,
-			"copyRemoteReferences":    req.CopyRemoteReferences,
 		},
 	}
 	if err := c.do(ctx, forkMutation, vars, &out); err != nil {
@@ -229,135 +267,141 @@ func (c *Client) CopyInstance(ctx context.Context, sourceID, destinationID strin
 	return out.CopyInstance.check("copyInstance")
 }
 
-const createDeploymentMutation = `
-mutation RocketsledCreateDeployment($organizationId: ID!, $id: ID!, $input: CreateDeploymentInput!) {
-  createDeployment(organizationId: $organizationId, id: $id, input: $input) {
-    successful
-    messages { field message code }
-    result { id status }
-  }
-}`
-
-func (c *Client) CreateDeployment(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
-	var out struct {
-		CreateDeployment payload[struct {
-			ID string `json:"id"`
-		}] `json:"createDeployment"`
-	}
-	vars := map[string]any{
-		"id": instanceID,
-		"input": map[string]any{
-			"action":  "PROVISION",
-			"message": message,
-			"params":  params,
-		},
-	}
-	if err := c.do(ctx, createDeploymentMutation, vars, &out); err != nil {
-		return "", err
-	}
-	if err := out.CreateDeployment.check("createDeployment"); err != nil {
-		return "", err
-	}
-	if out.CreateDeployment.Result == nil {
-		return "", errNilResult
-	}
-	return out.CreateDeployment.Result.ID, nil
-}
-
-const deployEnvironmentMutation = `
-mutation RocketsledDeployEnvironment($organizationId: ID!, $id: ID!) {
-  deployEnvironment(organizationId: $organizationId, id: $id) {
-    successful
-    messages { field message code }
-    result { id }
-  }
-}`
-
 func (c *Client) DeployEnvironment(ctx context.Context, environmentID string) error {
-	var out struct {
-		DeployEnvironment payload[struct{ ID string }] `json:"deployEnvironment"`
-	}
-	if err := c.do(ctx, deployEnvironmentMutation, map[string]any{"id": environmentID}, &out); err != nil {
-		return err
-	}
-	return out.DeployEnvironment.check("deployEnvironment")
+	return c.simpleMutation(ctx, "deployEnvironment", environmentID)
 }
-
-const deploymentQuery = `
-query RocketsledDeployment($organizationId: ID!, $id: UUID!) {
-  deployment(organizationId: $organizationId, id: $id) {
-    id status action message updatedAt
-  }
-}`
-
-func (c *Client) GetDeployment(ctx context.Context, deploymentID string) (*domain.DeploymentSummary, error) {
-	var out struct {
-		Deployment *struct {
-			ID        string `json:"id"`
-			Status    string `json:"status"`
-			Action    string `json:"action"`
-			Message   string `json:"message"`
-			UpdatedAt string `json:"updatedAt"`
-		} `json:"deployment"`
-	}
-	if err := c.do(ctx, deploymentQuery, map[string]any{"id": deploymentID}, &out); err != nil {
-		return nil, err
-	}
-	if out.Deployment == nil {
-		return nil, &APIError{Code: "NOT_FOUND", Message: "deployment " + deploymentID + " not found"}
-	}
-	d := out.Deployment
-	return &domain.DeploymentSummary{
-		ID: d.ID, Status: domain.DeploymentStatus(d.Status), Action: d.Action, Message: d.Message, UpdatedAt: d.UpdatedAt,
-	}, nil
-}
-
-const decommissionMutation = `
-mutation RocketsledDecommission($organizationId: ID!, $id: ID!) {
-  decommissionEnvironment(organizationId: $organizationId, id: $id) {
-    successful
-    messages { field message code }
-    result { id }
-  }
-}`
 
 func (c *Client) DecommissionEnvironment(ctx context.Context, environmentID string) error {
-	var out struct {
-		DecommissionEnvironment payload[struct{ ID string }] `json:"decommissionEnvironment"`
-	}
-	if err := c.do(ctx, decommissionMutation, map[string]any{"id": environmentID}, &out); err != nil {
-		return err
-	}
-	return out.DecommissionEnvironment.check("decommissionEnvironment")
+	return c.simpleMutation(ctx, "decommissionEnvironment", environmentID)
 }
 
-const deleteMutation = `
-mutation RocketsledDelete($organizationId: ID!, $id: ID!) {
-  deleteEnvironment(organizationId: $organizationId, id: $id) {
+func (c *Client) DeleteEnvironment(ctx context.Context, environmentID string) error {
+	return c.simpleMutation(ctx, "deleteEnvironment", environmentID)
+}
+
+// simpleMutation runs a (organizationId, id) -> EnvironmentPayload mutation.
+func (c *Client) simpleMutation(ctx context.Context, name, id string) error {
+	query := fmt.Sprintf(`
+mutation Rocketsled($organizationId: ID!, $id: ID!) {
+  %s(organizationId: $organizationId, id: $id) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`, name)
+	var out map[string]payload[struct{ ID string }]
+	if err := c.do(ctx, query, map[string]any{"id": id}, &out); err != nil {
+		return err
+	}
+	return out[name].check(name)
+}
+
+const createResourceMutation = `
+mutation RocketsledCreateResource($organizationId: ID!, $resourceTypeId: ID!, $input: CreateResourceInput!) {
+  createResource(organizationId: $organizationId, resourceTypeId: $resourceTypeId, input: $input) {
     successful
     messages { field message code }
     result { id }
   }
 }`
 
-func (c *Client) DeleteEnvironment(ctx context.Context, environmentID string) error {
+func (c *Client) CreateResource(ctx context.Context, resourceTypeID, name string, data map[string]any) (string, error) {
 	var out struct {
-		DeleteEnvironment payload[struct{ ID string }] `json:"deleteEnvironment"`
+		CreateResource payload[struct {
+			ID string `json:"id"`
+		}] `json:"createResource"`
 	}
-	if err := c.do(ctx, deleteMutation, map[string]any{"id": environmentID}, &out); err != nil {
+	vars := map[string]any{
+		"resourceTypeId": resourceTypeID,
+		"input":          map[string]any{"name": name, "payload": data},
+	}
+	if err := c.do(ctx, createResourceMutation, vars, &out); err != nil {
+		return "", err
+	}
+	if err := out.CreateResource.check("createResource"); err != nil {
+		return "", err
+	}
+	if out.CreateResource.Result == nil {
+		return "", errNilResult
+	}
+	return out.CreateResource.Result.ID, nil
+}
+
+const setDefaultMutation = `
+mutation RocketsledSetDefault($organizationId: ID!, $environmentId: ID!, $resourceId: ID!) {
+  setEnvironmentDefault(organizationId: $organizationId, environmentId: $environmentId, resourceId: $resourceId) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`
+
+func (c *Client) SetEnvironmentDefault(ctx context.Context, environmentID, resourceID string) error {
+	var out struct {
+		SetEnvironmentDefault payload[struct{ ID string }] `json:"setEnvironmentDefault"`
+	}
+	if err := c.do(ctx, setDefaultMutation, map[string]any{"environmentId": environmentID, "resourceId": resourceID}, &out); err != nil {
 		return err
 	}
-	return out.DeleteEnvironment.check("deleteEnvironment")
+	return out.SetEnvironmentDefault.check("setEnvironmentDefault")
+}
+
+const createOrganizationMutation = `
+mutation RocketsledCreateOrganization($input: CreateOrganizationInput!) {
+  createOrganization(input: $input) {
+    successful
+    messages { field message code }
+    result { id name }
+  }
+}`
+
+func (c *Client) CreateOrganization(ctx context.Context, id, name string) error {
+	var out struct {
+		CreateOrganization payload[struct{ ID string }] `json:"createOrganization"`
+	}
+	if err := c.doWithoutOrg(ctx, createOrganizationMutation, map[string]any{"input": map[string]any{"id": id, "name": name}}, &out); err != nil {
+		return err
+	}
+	return out.CreateOrganization.check("createOrganization")
+}
+
+const createServiceAccountMutation = `
+mutation RocketsledCreateServiceAccount($organizationId: ID!, $input: CreateServiceAccountInput!) {
+  createServiceAccount(organizationId: $organizationId, input: $input) {
+    successful
+    messages { field message code }
+    result { id token }
+  }
+}`
+
+// CreateServiceAccount makes a service account whose default token lasts ten years.
+func (c *Client) CreateServiceAccount(ctx context.Context, name string) (string, error) {
+	var out struct {
+		CreateServiceAccount payload[struct {
+			ID    string `json:"id"`
+			Token string `json:"token"`
+		}] `json:"createServiceAccount"`
+	}
+	vars := map[string]any{"input": map[string]any{
+		"name":                                  name,
+		"description":                           "Rocketsled administers this organization.",
+		"defaultAccessTokenExpirationInMinutes": 5256000,
+	}}
+	if err := c.do(ctx, createServiceAccountMutation, vars, &out); err != nil {
+		return "", err
+	}
+	if err := out.CreateServiceAccount.check("createServiceAccount"); err != nil {
+		return "", err
+	}
+	if out.CreateServiceAccount.Result == nil || out.CreateServiceAccount.Result.Token == "" {
+		return "", fmt.Errorf("createServiceAccount returned no token")
+	}
+	return out.CreateServiceAccount.Result.Token, nil
 }
 
 const viewerQuery = `
 query RocketsledViewer($organizationId: ID!) {
   organization(organizationId: $organizationId) { id name }
-  viewer {
-    __typename
-    ... on AccountViewer { id email }
-    ... on ServiceAccountViewer { id name }
-  }
 }`
 
 // Ping verifies credentials and organization access, returning the organization name.

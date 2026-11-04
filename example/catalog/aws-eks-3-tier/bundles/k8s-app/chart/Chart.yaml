@@ -1,6 +1,0 @@
-apiVersion: v2
-name: k8s-app
-description: A web service Deployment wired to its data tier
-type: application
-version: 0.1.0
-appVersion: "1.0.0"

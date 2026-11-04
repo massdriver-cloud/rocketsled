@@ -1,5 +1,0 @@
-_massdriver_variables.tf
-schema-*.json
-.terraform/
-.terraform.lock.hcl
-terraform.tfstate*

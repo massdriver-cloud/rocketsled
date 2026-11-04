@@ -15,10 +15,11 @@ import (
 	"time"
 
 	"github.com/massdriver-cloud/rocketsled/internal/auth"
-	"github.com/massdriver-cloud/rocketsled/internal/builder/docker"
+	"github.com/massdriver-cloud/rocketsled/internal/catalog"
 	"github.com/massdriver-cloud/rocketsled/internal/config"
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
 	"github.com/massdriver-cloud/rocketsled/internal/httpapi"
+	"github.com/massdriver-cloud/rocketsled/internal/installer"
 	"github.com/massdriver-cloud/rocketsled/internal/massdriver"
 	"github.com/massdriver-cloud/rocketsled/internal/scm/dev"
 	"github.com/massdriver-cloud/rocketsled/internal/scm/github"
@@ -29,11 +30,11 @@ import (
 
 var version = "dev"
 
-const usage = `rocketsled — a small PaaS on top of Massdriver
+const usage = `rocketsled — a PaaS on Massdriver
 
 Usage:
   rocketsled serve  [-config rocketsled.yaml]   start the API and UI
-  rocketsled check  [-config rocketsled.yaml]   validate config and Massdriver access
+  rocketsled check  [-config rocketsled.yaml]   validate config, credential and catalogs
   rocketsled version
 `
 
@@ -75,17 +76,23 @@ func loadConfig(args []string, name string) (*config.Config, error) {
 type app struct {
 	cfg      *config.Config
 	svc      *domain.Service
-	platform *massdriver.Client
+	catalogs []domain.Catalog
 	store    *sqlite.Store
 }
 
 func build(cfg *config.Config, log *slog.Logger) (*app, error) {
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return nil, err
+	}
 	store, err := sqlite.Open(cfg.Database.Path, cfg.Server.SessionSecret)
 	if err != nil {
 		return nil, err
 	}
-	platform := massdriver.New(cfg.Massdriver.URL, cfg.Massdriver.OrganizationID, cfg.Massdriver.APIKey, nil)
-
+	catalogs, err := catalog.LoadAll(cfg.Catalogs.Dir)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	var scms []domain.SCM
 	if p := cfg.Auth.Providers.GitHub; p != nil {
 		scms = append(scms, github.New(p.ClientID, p.ClientSecret, p.BaseURL, nil))
@@ -95,41 +102,30 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 	}
 	if p := cfg.Auth.Providers.Dev; p != nil {
 		log.Warn("dev sign-in stub enabled; anyone who can reach this server is signed in as " + p.Login)
-		scms = append(scms, dev.New(p.Login, p.Repos, "", nil))
+		scms = append(scms, dev.New(p.Login))
 	}
-	links := make([]domain.ProjectLink, 0, len(cfg.Massdriver.Projects))
-	for _, p := range cfg.Massdriver.Projects {
-		links = append(links, domain.ProjectLink{
-			ID:                   p.ID,
-			BaseEnvironment:      p.BaseEnvironment,
-			AppComponent:         p.AppComponent,
-			ImageTagParam:        p.ImageTagParam,
-			ImageRepositoryParam: p.ImageRepositoryParam,
-			ImageRepository:      p.ImageRepository,
-			ImageRegistry:        p.ImageRegistry,
-			CopySecrets:          p.CopySecrets,
-			CopyRemoteReferences: p.CopyRemoteReferences,
-		})
-	}
-	var builder domain.Builder
-	if d := cfg.Builder.Docker; d != nil {
-		builder = docker.New(d.Platform, d.LoginCommand)
+	creatorToken := cfg.Massdriver.OrgCreatorToken
+	if creatorToken == "" {
+		creatorToken = cfg.Massdriver.APIKey
 	}
 	svc, err := domain.NewService(domain.Options{
-		Platform:      platform,
-		Store:         store,
-		SCMs:          scms,
-		Projects:      links,
-		BaseURL:       cfg.Server.BaseURL,
-		WebhookSecret: cfg.Auth.Webhooks.Secret,
-		Builder:       builder,
-		Logger:        log,
+		Platforms:        massdriver.Factory,
+		Store:            store,
+		SCMs:             scms,
+		Installer:        installer.New(cfg.Tools.Mass, cfg.Tools.Tofu),
+		Catalogs:         catalogs,
+		Mode:             domain.AccountMode(cfg.Massdriver.AccountMode),
+		SharedCredential: domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey},
+		OrgCreator:       domain.Credential{URL: cfg.Massdriver.URL, APIKey: creatorToken},
+		DataDir:          cfg.DataDir,
+		StableReleases:   cfg.Catalogs.ReleaseChannel == "stable",
+		Logger:           log,
 	})
 	if err != nil {
 		_ = store.Close()
 		return nil, err
 	}
-	return &app{cfg: cfg, svc: svc, platform: platform, store: store}, nil
+	return &app{cfg: cfg, svc: svc, catalogs: catalogs, store: store}, nil
 }
 
 func serve(args []string, log *slog.Logger) error {
@@ -146,10 +142,11 @@ func serve(args []string, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if org, err := a.platform.Ping(ctx); err != nil {
+	shared := massdriver.Factory(domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey})
+	if org, err := shared.Ping(ctx); err != nil {
 		log.Warn("massdriver check failed; continuing", "err", err)
 	} else {
-		log.Info("massdriver connected", "organization", org, "projects", len(cfg.Massdriver.Projects))
+		log.Info("massdriver connected", "organization", org, "mode", cfg.Massdriver.AccountMode, "catalogs", len(a.catalogs))
 	}
 
 	ui := web.Dist()
@@ -157,19 +154,13 @@ func serve(args []string, log *slog.Logger) error {
 		log.Warn("UI not built; serving API only (run `make ui`)")
 	}
 	handler := httpapi.New(httpapi.Options{
-		Service:       a.svc,
-		Sessions:      auth.New(cfg.Server.SessionSecret, cfg.Server.SessionTTL, strings.HasPrefix(cfg.Server.BaseURL, "https://")),
-		BaseURL:       cfg.Server.BaseURL,
-		WebhookSecret: cfg.Auth.Webhooks.Secret,
-		UI:            ui,
-		Logger:        log,
+		Service:  a.svc,
+		Sessions: auth.New(cfg.Server.SessionSecret, cfg.Server.SessionTTL, strings.HasPrefix(cfg.Server.BaseURL, "https://")),
+		BaseURL:  cfg.Server.BaseURL,
+		UI:       ui,
+		Logger:   log,
 	})
-	srv := &http.Server{
-		Addr:              cfg.Server.Addr,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	srv := &http.Server{Addr: cfg.Server.Addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("rocketsled listening", "addr", cfg.Server.Addr, "base_url", cfg.Server.BaseURL, "version", version)
@@ -202,31 +193,17 @@ func check(args []string, log *slog.Logger) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	org, err := a.platform.Ping(ctx)
+	shared := massdriver.Factory(domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey})
+	org, err := shared.Ping(ctx)
 	if err != nil {
 		return fmt.Errorf("massdriver: %w", err)
 	}
 	fmt.Printf("organization  %s (%s)\n", org, cfg.Massdriver.OrganizationID)
+	fmt.Printf("account mode  %s\n", cfg.Massdriver.AccountMode)
 	fmt.Printf("providers     %v\n", a.svc.Providers())
-	var failed bool
-	for _, link := range a.svc.ListProjectLinks() {
-		lp, err := a.svc.GetProject(ctx, link.ID)
-		if err != nil {
-			failed = true
-			fmt.Printf("project       %-20s ERROR %v\n", link.ID, err)
-			continue
-		}
-		fmt.Printf("project       %-20s base=%s app=%s components=%d\n", link.ID, link.BaseEnvironment, lp.AppComponent, len(lp.Project.Components))
-		for _, c := range lp.Project.Components {
-			names := make([]string, 0, len(c.Bundle.Presets))
-			for _, p := range c.Bundle.Presets {
-				names = append(names, p.Name)
-			}
-			fmt.Printf("  %-18s %s@%s presets=%v\n", c.Slug, c.Bundle.Name, c.Bundle.Version, names)
-		}
-	}
-	if failed {
-		return errors.New("one or more projects failed to load")
+	for _, c := range a.catalogs {
+		fmt.Printf("catalog       %-16s %s: %d platform(s), %d resource type(s), %d bundle(s), bootstrap %s/%s\n",
+			c.ID, c.Name, len(c.Platforms), len(c.ResourceTypes), len(c.Bundles), c.Bootstrap.Project, c.Bootstrap.BaseEnvironment)
 	}
 	return nil
 }

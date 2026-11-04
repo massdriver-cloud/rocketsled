@@ -1,6 +1,0 @@
-version: "16"
-database_name: app
-username: app
-storage_gb: 5
-size: small
-commonLabels: {}

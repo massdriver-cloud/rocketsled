@@ -1,4 +1,4 @@
-// Package memory is an in-memory domain.Store used by tests and local experiments.
+// Package memory is an in-memory domain.Store used by tests.
 package memory
 
 import (
@@ -12,12 +12,13 @@ import (
 
 // Store keeps everything in maps guarded by one mutex.
 type Store struct {
-	mu          sync.RWMutex
-	users       map[string]domain.User
-	credentials map[string]string
-	stacks      map[string]domain.Stack
-	instances   map[string]domain.Instance
-	deploys     map[string]domain.Deploy
+	mu           sync.RWMutex
+	users        map[string]domain.User
+	accounts     map[string]domain.Account
+	credentials  map[string]domain.Credential
+	states       map[string][]byte
+	environments map[string]domain.Environment
+	runs         map[string]domain.Run
 }
 
 var _ domain.Store = (*Store)(nil)
@@ -25,11 +26,12 @@ var _ domain.Store = (*Store)(nil)
 // New returns an empty Store.
 func New() *Store {
 	return &Store{
-		users:       map[string]domain.User{},
-		credentials: map[string]string{},
-		stacks:      map[string]domain.Stack{},
-		instances:   map[string]domain.Instance{},
-		deploys:     map[string]domain.Deploy{},
+		users:        map[string]domain.User{},
+		accounts:     map[string]domain.Account{},
+		credentials:  map[string]domain.Credential{},
+		states:       map[string][]byte{},
+		environments: map[string]domain.Environment{},
+		runs:         map[string]domain.Run{},
 	}
 }
 
@@ -53,158 +55,170 @@ func (s *Store) GetUser(_ context.Context, id string) (*domain.User, error) {
 	return &u, nil
 }
 
-func (s *Store) SaveCredential(_ context.Context, userID, token string) error {
+func (s *Store) CreateAccount(_ context.Context, a *domain.Account, credential domain.Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.credentials[userID] = token
-	return nil
-}
-
-func (s *Store) GetCredential(_ context.Context, userID string) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	t, ok := s.credentials[userID]
-	if !ok {
-		return "", fmt.Errorf("%w: credential for %s", domain.ErrNotFound, userID)
-	}
-	return t, nil
-}
-
-func (s *Store) CreateStack(_ context.Context, st *domain.Stack) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.stacks[st.ID]; exists {
-		return fmt.Errorf("%w: stack %s", domain.ErrConflict, st.ID)
-	}
-	s.stacks[st.ID] = *st
-	return nil
-}
-
-func (s *Store) GetStack(_ context.Context, id string) (*domain.Stack, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	st, ok := s.stacks[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: stack %s", domain.ErrNotFound, id)
-	}
-	return &st, nil
-}
-
-func (s *Store) ListStacks(_ context.Context) ([]domain.Stack, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]domain.Stack, 0, len(s.stacks))
-	for _, st := range s.stacks {
-		out = append(out, st)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out, nil
-}
-
-func (s *Store) FindStacksByRepo(_ context.Context, provider domain.Provider, fullName string) ([]domain.Stack, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := []domain.Stack{}
-	for _, st := range s.stacks {
-		if st.Repo.Provider == provider && st.Repo.FullName == fullName {
-			out = append(out, st)
+	for _, existing := range s.accounts {
+		if existing.OwnerUserID == a.OwnerUserID {
+			return fmt.Errorf("%w: user already has an account", domain.ErrConflict)
 		}
 	}
-	return out, nil
-}
-
-func (s *Store) DeleteStack(_ context.Context, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.stacks[id]; !ok {
-		return fmt.Errorf("%w: stack %s", domain.ErrNotFound, id)
-	}
-	delete(s.stacks, id)
+	s.accounts[a.ID] = cloneAccount(*a)
+	s.credentials[a.ID] = credential
 	return nil
 }
 
-func (s *Store) CreateInstance(_ context.Context, i *domain.Instance) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, existing := range s.instances {
-		if existing.StackID == i.StackID && existing.Slug == i.Slug {
-			return fmt.Errorf("%w: instance %s", domain.ErrConflict, i.Slug)
+func cloneAccount(a domain.Account) domain.Account {
+	p := make(map[string]string, len(a.Platforms))
+	for k, v := range a.Platforms {
+		p[k] = v
+	}
+	a.Platforms = p
+	return a
+}
+
+func (s *Store) GetAccount(_ context.Context, id string) (*domain.Account, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.accounts[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: account %s", domain.ErrNotFound, id)
+	}
+	a = cloneAccount(a)
+	return &a, nil
+}
+
+func (s *Store) GetAccountByOwner(_ context.Context, userID string) (*domain.Account, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, a := range s.accounts {
+		if a.OwnerUserID == userID {
+			a = cloneAccount(a)
+			return &a, nil
 		}
 	}
-	s.instances[i.ID] = *i
+	return nil, fmt.Errorf("%w: no account for %s", domain.ErrNotFound, userID)
+}
+
+func (s *Store) UpdateAccount(_ context.Context, a *domain.Account) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.accounts[a.ID]; !ok {
+		return fmt.Errorf("%w: account %s", domain.ErrNotFound, a.ID)
+	}
+	s.accounts[a.ID] = cloneAccount(*a)
 	return nil
 }
 
-func (s *Store) GetInstance(_ context.Context, id string) (*domain.Instance, error) {
+func (s *Store) GetAccountCredential(_ context.Context, accountID string) (domain.Credential, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	i, ok := s.instances[id]
+	c, ok := s.credentials[accountID]
 	if !ok {
-		return nil, fmt.Errorf("%w: instance %s", domain.ErrNotFound, id)
+		return domain.Credential{}, fmt.Errorf("%w: credential for account %s", domain.ErrNotFound, accountID)
 	}
-	return &i, nil
+	return c, nil
 }
 
-func (s *Store) ListInstances(_ context.Context, stackID string) ([]domain.Instance, error) {
+func (s *Store) SaveBootstrapState(_ context.Context, accountID string, state []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states[accountID] = append([]byte(nil), state...)
+	return nil
+}
+
+func (s *Store) GetBootstrapState(_ context.Context, accountID string) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := []domain.Instance{}
-	for _, i := range s.instances {
-		if i.StackID == stackID {
-			out = append(out, i)
+	st, ok := s.states[accountID]
+	if !ok {
+		return nil, fmt.Errorf("%w: state for account %s", domain.ErrNotFound, accountID)
+	}
+	return append([]byte(nil), st...), nil
+}
+
+func (s *Store) CreateEnvironment(_ context.Context, e *domain.Environment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.environments {
+		if existing.AccountID == e.AccountID && existing.Slug == e.Slug {
+			return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
+		}
+	}
+	s.environments[e.ID] = *e
+	return nil
+}
+
+func (s *Store) GetEnvironment(_ context.Context, id string) (*domain.Environment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e, ok := s.environments[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: environment %s", domain.ErrNotFound, id)
+	}
+	return &e, nil
+}
+
+func (s *Store) ListEnvironments(_ context.Context, accountID string) ([]domain.Environment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Environment{}
+	for _, e := range s.environments {
+		if e.AccountID == accountID {
+			out = append(out, e)
 		}
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].CreatedAt.Before(out[b].CreatedAt) })
 	return out, nil
 }
 
-func (s *Store) UpdateInstance(_ context.Context, i *domain.Instance) error {
+func (s *Store) UpdateEnvironment(_ context.Context, e *domain.Environment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.instances[i.ID]; !ok {
-		return fmt.Errorf("%w: instance %s", domain.ErrNotFound, i.ID)
+	if _, ok := s.environments[e.ID]; !ok {
+		return fmt.Errorf("%w: environment %s", domain.ErrNotFound, e.ID)
 	}
-	s.instances[i.ID] = *i
+	s.environments[e.ID] = *e
 	return nil
 }
 
-func (s *Store) DeleteInstance(_ context.Context, id string) error {
+func (s *Store) DeleteEnvironment(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.instances, id)
-	for did, d := range s.deploys {
-		if d.InstanceID == id {
-			delete(s.deploys, did)
+	delete(s.environments, id)
+	for rid, r := range s.runs {
+		if r.EnvironmentID == id {
+			delete(s.runs, rid)
 		}
 	}
 	return nil
 }
 
-func (s *Store) CreateDeploy(_ context.Context, d *domain.Deploy) error {
+func (s *Store) CreateRun(_ context.Context, r *domain.Run) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.deploys[d.ID] = *d
+	s.runs[r.ID] = *r
 	return nil
 }
 
-func (s *Store) UpdateDeploy(_ context.Context, d *domain.Deploy) error {
+func (s *Store) UpdateRun(_ context.Context, r *domain.Run) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.deploys[d.ID]; !ok {
-		return fmt.Errorf("%w: deploy %s", domain.ErrNotFound, d.ID)
+	if _, ok := s.runs[r.ID]; !ok {
+		return fmt.Errorf("%w: run %s", domain.ErrNotFound, r.ID)
 	}
-	s.deploys[d.ID] = *d
+	s.runs[r.ID] = *r
 	return nil
 }
 
-// ListDeploys returns the newest runs first.
-func (s *Store) ListDeploys(_ context.Context, instanceID string, limit int) ([]domain.Deploy, error) {
+// ListRuns returns the newest runs first.
+func (s *Store) ListRuns(_ context.Context, environmentID string, limit int) ([]domain.Run, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := []domain.Deploy{}
-	for _, d := range s.deploys {
-		if d.InstanceID == instanceID {
-			out = append(out, d)
+	out := []domain.Run{}
+	for _, r := range s.runs {
+		if r.EnvironmentID == environmentID {
+			out = append(out, r)
 		}
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].Number > out[b].Number })

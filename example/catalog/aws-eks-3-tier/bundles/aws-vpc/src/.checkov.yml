@@ -1,5 +1,0 @@
-skip-check:
-  # Flow logs are a param; letting the check fail when disabled is the intended signal.
-  # (No skip.) Log group encryption uses the CloudWatch service key; a customer
-  # managed KMS key is outside this bundle's scope.
-  - CKV_AWS_158

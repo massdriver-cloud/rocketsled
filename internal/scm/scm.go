@@ -1,12 +1,10 @@
-// Package scm holds the shared plumbing for source-control providers. Each
-// provider lives in its own subpackage and implements domain.SCM.
+// Package scm holds the shared plumbing for sign-in providers. Each provider
+// lives in its own subpackage and implements domain.SCM.
 package scm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,25 +21,14 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.Status, e.Body)
 }
 
-// ErrNotPush marks webhook deliveries that are not push events.
-var ErrNotPush = errors.New("not a push event")
-
 // DefaultHTTPClient bounds every provider call.
 func DefaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
-// DoJSON performs an authenticated JSON request and decodes a 2xx body into out.
-func DoJSON(ctx context.Context, client *http.Client, method, url, token string, body, out any, headers map[string]string) error {
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("encode body: %w", err)
-		}
-		reader = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, url, reader)
+// GetJSON performs an authenticated GET and decodes a 2xx body into out.
+func GetJSON(ctx context.Context, client *http.Client, url, token string, out any, headers map[string]string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
@@ -50,9 +37,6 @@ func DoJSON(ctx context.Context, client *http.Client, method, url, token string,
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "rocketsled")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -61,7 +45,7 @@ func DoJSON(ctx context.Context, client *http.Client, method, url, token string,
 		return err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return fmt.Errorf("read body: %w", err)
 	}
@@ -72,16 +56,8 @@ func DoJSON(ctx context.Context, client *http.Client, method, url, token string,
 		}
 		return &HTTPError{Status: resp.StatusCode, Body: snippet}
 	}
-	if out == nil || len(raw) == 0 {
-		return nil
-	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("decode body: %w", err)
 	}
 	return nil
-}
-
-// ReadBody reads a webhook payload with a sane cap.
-func ReadBody(r *http.Request) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r.Body, 4<<20))
 }

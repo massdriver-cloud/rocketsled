@@ -124,12 +124,18 @@ func (e *ValidationError) Error() string {
 	return "massdriver: " + e.Mutation + " failed: " + strings.Join(parts, "; ")
 }
 
-// do executes a GraphQL operation and decodes data into out.
+// do executes a GraphQL operation scoped to the organization and decodes data into out.
 func (c *Client) do(ctx context.Context, query string, vars map[string]any, out any) error {
 	if vars == nil {
 		vars = map[string]any{}
 	}
 	vars["organizationId"] = c.orgID
+	return c.doWithoutOrg(ctx, query, vars, out)
+}
+
+// doWithoutOrg executes a GraphQL operation that takes no organization, such as
+// createOrganization.
+func (c *Client) doWithoutOrg(ctx context.Context, query string, vars map[string]any, out any) error {
 	body, err := json.Marshal(gqlRequest{Query: query, Variables: vars})
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)

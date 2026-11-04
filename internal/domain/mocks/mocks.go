@@ -6,7 +6,6 @@ package mocks
 import (
 	"context"
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
-	"net/http"
 	"sync"
 )
 
@@ -23,8 +22,14 @@ var _ domain.Platform = &PlatformMock{}
 //			CopyInstanceFunc: func(ctx context.Context, sourceID string, destinationID string, overrides map[string]any) error {
 //				panic("mock out the CopyInstance method")
 //			},
-//			CreateDeploymentFunc: func(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
-//				panic("mock out the CreateDeployment method")
+//			CreateOrganizationFunc: func(ctx context.Context, id string, name string) error {
+//				panic("mock out the CreateOrganization method")
+//			},
+//			CreateResourceFunc: func(ctx context.Context, resourceTypeID string, name string, payload map[string]any) (string, error) {
+//				panic("mock out the CreateResource method")
+//			},
+//			CreateServiceAccountFunc: func(ctx context.Context, name string) (string, error) {
+//				panic("mock out the CreateServiceAccount method")
 //			},
 //			DecommissionEnvironmentFunc: func(ctx context.Context, environmentID string) error {
 //				panic("mock out the DecommissionEnvironment method")
@@ -35,17 +40,20 @@ var _ domain.Platform = &PlatformMock{}
 //			DeployEnvironmentFunc: func(ctx context.Context, environmentID string) error {
 //				panic("mock out the DeployEnvironment method")
 //			},
-//			ForkEnvironmentFunc: func(ctx context.Context, req domain.ForkRequest) (*domain.Environment, error) {
+//			ForkEnvironmentFunc: func(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 //				panic("mock out the ForkEnvironment method")
 //			},
-//			GetDeploymentFunc: func(ctx context.Context, deploymentID string) (*domain.DeploymentSummary, error) {
-//				panic("mock out the GetDeployment method")
-//			},
-//			GetEnvironmentFunc: func(ctx context.Context, environmentID string) (*domain.Environment, error) {
+//			GetEnvironmentFunc: func(ctx context.Context, environmentID string) (*domain.PlatformEnvironment, error) {
 //				panic("mock out the GetEnvironment method")
 //			},
 //			GetProjectFunc: func(ctx context.Context, projectID string) (*domain.Project, error) {
 //				panic("mock out the GetProject method")
+//			},
+//			PingFunc: func(ctx context.Context) (string, error) {
+//				panic("mock out the Ping method")
+//			},
+//			SetEnvironmentDefaultFunc: func(ctx context.Context, environmentID string, resourceID string) error {
+//				panic("mock out the SetEnvironmentDefault method")
 //			},
 //		}
 //
@@ -57,8 +65,14 @@ type PlatformMock struct {
 	// CopyInstanceFunc mocks the CopyInstance method.
 	CopyInstanceFunc func(ctx context.Context, sourceID string, destinationID string, overrides map[string]any) error
 
-	// CreateDeploymentFunc mocks the CreateDeployment method.
-	CreateDeploymentFunc func(ctx context.Context, instanceID string, params map[string]any, message string) (string, error)
+	// CreateOrganizationFunc mocks the CreateOrganization method.
+	CreateOrganizationFunc func(ctx context.Context, id string, name string) error
+
+	// CreateResourceFunc mocks the CreateResource method.
+	CreateResourceFunc func(ctx context.Context, resourceTypeID string, name string, payload map[string]any) (string, error)
+
+	// CreateServiceAccountFunc mocks the CreateServiceAccount method.
+	CreateServiceAccountFunc func(ctx context.Context, name string) (string, error)
 
 	// DecommissionEnvironmentFunc mocks the DecommissionEnvironment method.
 	DecommissionEnvironmentFunc func(ctx context.Context, environmentID string) error
@@ -70,16 +84,19 @@ type PlatformMock struct {
 	DeployEnvironmentFunc func(ctx context.Context, environmentID string) error
 
 	// ForkEnvironmentFunc mocks the ForkEnvironment method.
-	ForkEnvironmentFunc func(ctx context.Context, req domain.ForkRequest) (*domain.Environment, error)
-
-	// GetDeploymentFunc mocks the GetDeployment method.
-	GetDeploymentFunc func(ctx context.Context, deploymentID string) (*domain.DeploymentSummary, error)
+	ForkEnvironmentFunc func(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error)
 
 	// GetEnvironmentFunc mocks the GetEnvironment method.
-	GetEnvironmentFunc func(ctx context.Context, environmentID string) (*domain.Environment, error)
+	GetEnvironmentFunc func(ctx context.Context, environmentID string) (*domain.PlatformEnvironment, error)
 
 	// GetProjectFunc mocks the GetProject method.
 	GetProjectFunc func(ctx context.Context, projectID string) (*domain.Project, error)
+
+	// PingFunc mocks the Ping method.
+	PingFunc func(ctx context.Context) (string, error)
+
+	// SetEnvironmentDefaultFunc mocks the SetEnvironmentDefault method.
+	SetEnvironmentDefaultFunc func(ctx context.Context, environmentID string, resourceID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -94,16 +111,32 @@ type PlatformMock struct {
 			// Overrides is the overrides argument value.
 			Overrides map[string]any
 		}
-		// CreateDeployment holds details about calls to the CreateDeployment method.
-		CreateDeployment []struct {
+		// CreateOrganization holds details about calls to the CreateOrganization method.
+		CreateOrganization []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// InstanceID is the instanceID argument value.
-			InstanceID string
-			// Params is the params argument value.
-			Params map[string]any
-			// Message is the message argument value.
-			Message string
+			// ID is the id argument value.
+			ID string
+			// Name is the name argument value.
+			Name string
+		}
+		// CreateResource holds details about calls to the CreateResource method.
+		CreateResource []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ResourceTypeID is the resourceTypeID argument value.
+			ResourceTypeID string
+			// Name is the name argument value.
+			Name string
+			// Payload is the payload argument value.
+			Payload map[string]any
+		}
+		// CreateServiceAccount holds details about calls to the CreateServiceAccount method.
+		CreateServiceAccount []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
 		}
 		// DecommissionEnvironment holds details about calls to the DecommissionEnvironment method.
 		DecommissionEnvironment []struct {
@@ -133,13 +166,6 @@ type PlatformMock struct {
 			// Req is the req argument value.
 			Req domain.ForkRequest
 		}
-		// GetDeployment holds details about calls to the GetDeployment method.
-		GetDeployment []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// DeploymentID is the deploymentID argument value.
-			DeploymentID string
-		}
 		// GetEnvironment holds details about calls to the GetEnvironment method.
 		GetEnvironment []struct {
 			// Ctx is the ctx argument value.
@@ -154,16 +180,33 @@ type PlatformMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// Ping holds details about calls to the Ping method.
+		Ping []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// SetEnvironmentDefault holds details about calls to the SetEnvironmentDefault method.
+		SetEnvironmentDefault []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
+			// ResourceID is the resourceID argument value.
+			ResourceID string
+		}
 	}
 	lockCopyInstance            sync.RWMutex
-	lockCreateDeployment        sync.RWMutex
+	lockCreateOrganization      sync.RWMutex
+	lockCreateResource          sync.RWMutex
+	lockCreateServiceAccount    sync.RWMutex
 	lockDecommissionEnvironment sync.RWMutex
 	lockDeleteEnvironment       sync.RWMutex
 	lockDeployEnvironment       sync.RWMutex
 	lockForkEnvironment         sync.RWMutex
-	lockGetDeployment           sync.RWMutex
 	lockGetEnvironment          sync.RWMutex
 	lockGetProject              sync.RWMutex
+	lockPing                    sync.RWMutex
+	lockSetEnvironmentDefault   sync.RWMutex
 }
 
 // CopyInstance calls CopyInstanceFunc.
@@ -213,51 +256,134 @@ func (mock *PlatformMock) CopyInstanceCalls() []struct {
 	return calls
 }
 
-// CreateDeployment calls CreateDeploymentFunc.
-func (mock *PlatformMock) CreateDeployment(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
+// CreateOrganization calls CreateOrganizationFunc.
+func (mock *PlatformMock) CreateOrganization(ctx context.Context, id string, name string) error {
 	callInfo := struct {
-		Ctx        context.Context
-		InstanceID string
-		Params     map[string]any
-		Message    string
+		Ctx  context.Context
+		ID   string
+		Name string
 	}{
-		Ctx:        ctx,
-		InstanceID: instanceID,
-		Params:     params,
-		Message:    message,
+		Ctx:  ctx,
+		ID:   id,
+		Name: name,
 	}
-	mock.lockCreateDeployment.Lock()
-	mock.calls.CreateDeployment = append(mock.calls.CreateDeployment, callInfo)
-	mock.lockCreateDeployment.Unlock()
-	if mock.CreateDeploymentFunc == nil {
+	mock.lockCreateOrganization.Lock()
+	mock.calls.CreateOrganization = append(mock.calls.CreateOrganization, callInfo)
+	mock.lockCreateOrganization.Unlock()
+	if mock.CreateOrganizationFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateOrganizationFunc(ctx, id, name)
+}
+
+// CreateOrganizationCalls gets all the calls that were made to CreateOrganization.
+// Check the length with:
+//
+//	len(mockedPlatform.CreateOrganizationCalls())
+func (mock *PlatformMock) CreateOrganizationCalls() []struct {
+	Ctx  context.Context
+	ID   string
+	Name string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		ID   string
+		Name string
+	}
+	mock.lockCreateOrganization.RLock()
+	calls = mock.calls.CreateOrganization
+	mock.lockCreateOrganization.RUnlock()
+	return calls
+}
+
+// CreateResource calls CreateResourceFunc.
+func (mock *PlatformMock) CreateResource(ctx context.Context, resourceTypeID string, name string, payload map[string]any) (string, error) {
+	callInfo := struct {
+		Ctx            context.Context
+		ResourceTypeID string
+		Name           string
+		Payload        map[string]any
+	}{
+		Ctx:            ctx,
+		ResourceTypeID: resourceTypeID,
+		Name:           name,
+		Payload:        payload,
+	}
+	mock.lockCreateResource.Lock()
+	mock.calls.CreateResource = append(mock.calls.CreateResource, callInfo)
+	mock.lockCreateResource.Unlock()
+	if mock.CreateResourceFunc == nil {
 		var (
 			sOut   string
 			errOut error
 		)
 		return sOut, errOut
 	}
-	return mock.CreateDeploymentFunc(ctx, instanceID, params, message)
+	return mock.CreateResourceFunc(ctx, resourceTypeID, name, payload)
 }
 
-// CreateDeploymentCalls gets all the calls that were made to CreateDeployment.
+// CreateResourceCalls gets all the calls that were made to CreateResource.
 // Check the length with:
 //
-//	len(mockedPlatform.CreateDeploymentCalls())
-func (mock *PlatformMock) CreateDeploymentCalls() []struct {
-	Ctx        context.Context
-	InstanceID string
-	Params     map[string]any
-	Message    string
+//	len(mockedPlatform.CreateResourceCalls())
+func (mock *PlatformMock) CreateResourceCalls() []struct {
+	Ctx            context.Context
+	ResourceTypeID string
+	Name           string
+	Payload        map[string]any
 } {
 	var calls []struct {
-		Ctx        context.Context
-		InstanceID string
-		Params     map[string]any
-		Message    string
+		Ctx            context.Context
+		ResourceTypeID string
+		Name           string
+		Payload        map[string]any
 	}
-	mock.lockCreateDeployment.RLock()
-	calls = mock.calls.CreateDeployment
-	mock.lockCreateDeployment.RUnlock()
+	mock.lockCreateResource.RLock()
+	calls = mock.calls.CreateResource
+	mock.lockCreateResource.RUnlock()
+	return calls
+}
+
+// CreateServiceAccount calls CreateServiceAccountFunc.
+func (mock *PlatformMock) CreateServiceAccount(ctx context.Context, name string) (string, error) {
+	callInfo := struct {
+		Ctx  context.Context
+		Name string
+	}{
+		Ctx:  ctx,
+		Name: name,
+	}
+	mock.lockCreateServiceAccount.Lock()
+	mock.calls.CreateServiceAccount = append(mock.calls.CreateServiceAccount, callInfo)
+	mock.lockCreateServiceAccount.Unlock()
+	if mock.CreateServiceAccountFunc == nil {
+		var (
+			sOut   string
+			errOut error
+		)
+		return sOut, errOut
+	}
+	return mock.CreateServiceAccountFunc(ctx, name)
+}
+
+// CreateServiceAccountCalls gets all the calls that were made to CreateServiceAccount.
+// Check the length with:
+//
+//	len(mockedPlatform.CreateServiceAccountCalls())
+func (mock *PlatformMock) CreateServiceAccountCalls() []struct {
+	Ctx  context.Context
+	Name string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Name string
+	}
+	mock.lockCreateServiceAccount.RLock()
+	calls = mock.calls.CreateServiceAccount
+	mock.lockCreateServiceAccount.RUnlock()
 	return calls
 }
 
@@ -379,7 +505,7 @@ func (mock *PlatformMock) DeployEnvironmentCalls() []struct {
 }
 
 // ForkEnvironment calls ForkEnvironmentFunc.
-func (mock *PlatformMock) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*domain.Environment, error) {
+func (mock *PlatformMock) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 	callInfo := struct {
 		Ctx context.Context
 		Req domain.ForkRequest
@@ -392,10 +518,10 @@ func (mock *PlatformMock) ForkEnvironment(ctx context.Context, req domain.ForkRe
 	mock.lockForkEnvironment.Unlock()
 	if mock.ForkEnvironmentFunc == nil {
 		var (
-			environmentOut *domain.Environment
-			errOut         error
+			platformEnvironmentOut *domain.PlatformEnvironment
+			errOut                 error
 		)
-		return environmentOut, errOut
+		return platformEnvironmentOut, errOut
 	}
 	return mock.ForkEnvironmentFunc(ctx, req)
 }
@@ -418,48 +544,8 @@ func (mock *PlatformMock) ForkEnvironmentCalls() []struct {
 	return calls
 }
 
-// GetDeployment calls GetDeploymentFunc.
-func (mock *PlatformMock) GetDeployment(ctx context.Context, deploymentID string) (*domain.DeploymentSummary, error) {
-	callInfo := struct {
-		Ctx          context.Context
-		DeploymentID string
-	}{
-		Ctx:          ctx,
-		DeploymentID: deploymentID,
-	}
-	mock.lockGetDeployment.Lock()
-	mock.calls.GetDeployment = append(mock.calls.GetDeployment, callInfo)
-	mock.lockGetDeployment.Unlock()
-	if mock.GetDeploymentFunc == nil {
-		var (
-			deploymentSummaryOut *domain.DeploymentSummary
-			errOut               error
-		)
-		return deploymentSummaryOut, errOut
-	}
-	return mock.GetDeploymentFunc(ctx, deploymentID)
-}
-
-// GetDeploymentCalls gets all the calls that were made to GetDeployment.
-// Check the length with:
-//
-//	len(mockedPlatform.GetDeploymentCalls())
-func (mock *PlatformMock) GetDeploymentCalls() []struct {
-	Ctx          context.Context
-	DeploymentID string
-} {
-	var calls []struct {
-		Ctx          context.Context
-		DeploymentID string
-	}
-	mock.lockGetDeployment.RLock()
-	calls = mock.calls.GetDeployment
-	mock.lockGetDeployment.RUnlock()
-	return calls
-}
-
 // GetEnvironment calls GetEnvironmentFunc.
-func (mock *PlatformMock) GetEnvironment(ctx context.Context, environmentID string) (*domain.Environment, error) {
+func (mock *PlatformMock) GetEnvironment(ctx context.Context, environmentID string) (*domain.PlatformEnvironment, error) {
 	callInfo := struct {
 		Ctx           context.Context
 		EnvironmentID string
@@ -472,10 +558,10 @@ func (mock *PlatformMock) GetEnvironment(ctx context.Context, environmentID stri
 	mock.lockGetEnvironment.Unlock()
 	if mock.GetEnvironmentFunc == nil {
 		var (
-			environmentOut *domain.Environment
-			errOut         error
+			platformEnvironmentOut *domain.PlatformEnvironment
+			errOut                 error
 		)
-		return environmentOut, errOut
+		return platformEnvironmentOut, errOut
 	}
 	return mock.GetEnvironmentFunc(ctx, environmentID)
 }
@@ -538,6 +624,85 @@ func (mock *PlatformMock) GetProjectCalls() []struct {
 	return calls
 }
 
+// Ping calls PingFunc.
+func (mock *PlatformMock) Ping(ctx context.Context) (string, error) {
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockPing.Lock()
+	mock.calls.Ping = append(mock.calls.Ping, callInfo)
+	mock.lockPing.Unlock()
+	if mock.PingFunc == nil {
+		var (
+			sOut   string
+			errOut error
+		)
+		return sOut, errOut
+	}
+	return mock.PingFunc(ctx)
+}
+
+// PingCalls gets all the calls that were made to Ping.
+// Check the length with:
+//
+//	len(mockedPlatform.PingCalls())
+func (mock *PlatformMock) PingCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockPing.RLock()
+	calls = mock.calls.Ping
+	mock.lockPing.RUnlock()
+	return calls
+}
+
+// SetEnvironmentDefault calls SetEnvironmentDefaultFunc.
+func (mock *PlatformMock) SetEnvironmentDefault(ctx context.Context, environmentID string, resourceID string) error {
+	callInfo := struct {
+		Ctx           context.Context
+		EnvironmentID string
+		ResourceID    string
+	}{
+		Ctx:           ctx,
+		EnvironmentID: environmentID,
+		ResourceID:    resourceID,
+	}
+	mock.lockSetEnvironmentDefault.Lock()
+	mock.calls.SetEnvironmentDefault = append(mock.calls.SetEnvironmentDefault, callInfo)
+	mock.lockSetEnvironmentDefault.Unlock()
+	if mock.SetEnvironmentDefaultFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.SetEnvironmentDefaultFunc(ctx, environmentID, resourceID)
+}
+
+// SetEnvironmentDefaultCalls gets all the calls that were made to SetEnvironmentDefault.
+// Check the length with:
+//
+//	len(mockedPlatform.SetEnvironmentDefaultCalls())
+func (mock *PlatformMock) SetEnvironmentDefaultCalls() []struct {
+	Ctx           context.Context
+	EnvironmentID string
+	ResourceID    string
+} {
+	var calls []struct {
+		Ctx           context.Context
+		EnvironmentID string
+		ResourceID    string
+	}
+	mock.lockSetEnvironmentDefault.RLock()
+	calls = mock.calls.SetEnvironmentDefault
+	mock.lockSetEnvironmentDefault.RUnlock()
+	return calls
+}
+
 // Ensure, that SCMMock does implement domain.SCM.
 // If this is not the case, regenerate this file with moq.
 var _ domain.SCM = &SCMMock{}
@@ -551,32 +716,11 @@ var _ domain.SCM = &SCMMock{}
 //			AuthCodeURLFunc: func(state string, redirectURL string) string {
 //				panic("mock out the AuthCodeURL method")
 //			},
-//			BranchHeadFunc: func(ctx context.Context, token string, fullName string, branch string) (string, error) {
-//				panic("mock out the BranchHead method")
-//			},
-//			CloneURLFunc: func(repo domain.Repo, token string) string {
-//				panic("mock out the CloneURL method")
-//			},
-//			CreateWebhookFunc: func(ctx context.Context, token string, fullName string, callbackURL string, secret string) (string, error) {
-//				panic("mock out the CreateWebhook method")
-//			},
 //			CurrentUserFunc: func(ctx context.Context, token string) (*domain.User, error) {
 //				panic("mock out the CurrentUser method")
 //			},
-//			DeleteWebhookFunc: func(ctx context.Context, token string, fullName string, hookID string) error {
-//				panic("mock out the DeleteWebhook method")
-//			},
 //			ExchangeFunc: func(ctx context.Context, code string, redirectURL string) (string, error) {
 //				panic("mock out the Exchange method")
-//			},
-//			GetRepoFunc: func(ctx context.Context, token string, fullName string) (*domain.Repo, error) {
-//				panic("mock out the GetRepo method")
-//			},
-//			ListReposFunc: func(ctx context.Context, token string) ([]domain.Repo, error) {
-//				panic("mock out the ListRepos method")
-//			},
-//			ParsePushFunc: func(r *http.Request, secret string) (*domain.PushEvent, error) {
-//				panic("mock out the ParsePush method")
 //			},
 //			ProviderFunc: func() domain.Provider {
 //				panic("mock out the Provider method")
@@ -591,32 +735,11 @@ type SCMMock struct {
 	// AuthCodeURLFunc mocks the AuthCodeURL method.
 	AuthCodeURLFunc func(state string, redirectURL string) string
 
-	// BranchHeadFunc mocks the BranchHead method.
-	BranchHeadFunc func(ctx context.Context, token string, fullName string, branch string) (string, error)
-
-	// CloneURLFunc mocks the CloneURL method.
-	CloneURLFunc func(repo domain.Repo, token string) string
-
-	// CreateWebhookFunc mocks the CreateWebhook method.
-	CreateWebhookFunc func(ctx context.Context, token string, fullName string, callbackURL string, secret string) (string, error)
-
 	// CurrentUserFunc mocks the CurrentUser method.
 	CurrentUserFunc func(ctx context.Context, token string) (*domain.User, error)
 
-	// DeleteWebhookFunc mocks the DeleteWebhook method.
-	DeleteWebhookFunc func(ctx context.Context, token string, fullName string, hookID string) error
-
 	// ExchangeFunc mocks the Exchange method.
 	ExchangeFunc func(ctx context.Context, code string, redirectURL string) (string, error)
-
-	// GetRepoFunc mocks the GetRepo method.
-	GetRepoFunc func(ctx context.Context, token string, fullName string) (*domain.Repo, error)
-
-	// ListReposFunc mocks the ListRepos method.
-	ListReposFunc func(ctx context.Context, token string) ([]domain.Repo, error)
-
-	// ParsePushFunc mocks the ParsePush method.
-	ParsePushFunc func(r *http.Request, secret string) (*domain.PushEvent, error)
 
 	// ProviderFunc mocks the Provider method.
 	ProviderFunc func() domain.Provider
@@ -630,54 +753,12 @@ type SCMMock struct {
 			// RedirectURL is the redirectURL argument value.
 			RedirectURL string
 		}
-		// BranchHead holds details about calls to the BranchHead method.
-		BranchHead []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Token is the token argument value.
-			Token string
-			// FullName is the fullName argument value.
-			FullName string
-			// Branch is the branch argument value.
-			Branch string
-		}
-		// CloneURL holds details about calls to the CloneURL method.
-		CloneURL []struct {
-			// Repo is the repo argument value.
-			Repo domain.Repo
-			// Token is the token argument value.
-			Token string
-		}
-		// CreateWebhook holds details about calls to the CreateWebhook method.
-		CreateWebhook []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Token is the token argument value.
-			Token string
-			// FullName is the fullName argument value.
-			FullName string
-			// CallbackURL is the callbackURL argument value.
-			CallbackURL string
-			// Secret is the secret argument value.
-			Secret string
-		}
 		// CurrentUser holds details about calls to the CurrentUser method.
 		CurrentUser []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Token is the token argument value.
 			Token string
-		}
-		// DeleteWebhook holds details about calls to the DeleteWebhook method.
-		DeleteWebhook []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Token is the token argument value.
-			Token string
-			// FullName is the fullName argument value.
-			FullName string
-			// HookID is the hookID argument value.
-			HookID string
 		}
 		// Exchange holds details about calls to the Exchange method.
 		Exchange []struct {
@@ -688,44 +769,14 @@ type SCMMock struct {
 			// RedirectURL is the redirectURL argument value.
 			RedirectURL string
 		}
-		// GetRepo holds details about calls to the GetRepo method.
-		GetRepo []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Token is the token argument value.
-			Token string
-			// FullName is the fullName argument value.
-			FullName string
-		}
-		// ListRepos holds details about calls to the ListRepos method.
-		ListRepos []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Token is the token argument value.
-			Token string
-		}
-		// ParsePush holds details about calls to the ParsePush method.
-		ParsePush []struct {
-			// R is the r argument value.
-			R *http.Request
-			// Secret is the secret argument value.
-			Secret string
-		}
 		// Provider holds details about calls to the Provider method.
 		Provider []struct {
 		}
 	}
-	lockAuthCodeURL   sync.RWMutex
-	lockBranchHead    sync.RWMutex
-	lockCloneURL      sync.RWMutex
-	lockCreateWebhook sync.RWMutex
-	lockCurrentUser   sync.RWMutex
-	lockDeleteWebhook sync.RWMutex
-	lockExchange      sync.RWMutex
-	lockGetRepo       sync.RWMutex
-	lockListRepos     sync.RWMutex
-	lockParsePush     sync.RWMutex
-	lockProvider      sync.RWMutex
+	lockAuthCodeURL sync.RWMutex
+	lockCurrentUser sync.RWMutex
+	lockExchange    sync.RWMutex
+	lockProvider    sync.RWMutex
 }
 
 // AuthCodeURL calls AuthCodeURLFunc.
@@ -767,145 +818,6 @@ func (mock *SCMMock) AuthCodeURLCalls() []struct {
 	return calls
 }
 
-// BranchHead calls BranchHeadFunc.
-func (mock *SCMMock) BranchHead(ctx context.Context, token string, fullName string, branch string) (string, error) {
-	callInfo := struct {
-		Ctx      context.Context
-		Token    string
-		FullName string
-		Branch   string
-	}{
-		Ctx:      ctx,
-		Token:    token,
-		FullName: fullName,
-		Branch:   branch,
-	}
-	mock.lockBranchHead.Lock()
-	mock.calls.BranchHead = append(mock.calls.BranchHead, callInfo)
-	mock.lockBranchHead.Unlock()
-	if mock.BranchHeadFunc == nil {
-		var (
-			sOut   string
-			errOut error
-		)
-		return sOut, errOut
-	}
-	return mock.BranchHeadFunc(ctx, token, fullName, branch)
-}
-
-// BranchHeadCalls gets all the calls that were made to BranchHead.
-// Check the length with:
-//
-//	len(mockedSCM.BranchHeadCalls())
-func (mock *SCMMock) BranchHeadCalls() []struct {
-	Ctx      context.Context
-	Token    string
-	FullName string
-	Branch   string
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Token    string
-		FullName string
-		Branch   string
-	}
-	mock.lockBranchHead.RLock()
-	calls = mock.calls.BranchHead
-	mock.lockBranchHead.RUnlock()
-	return calls
-}
-
-// CloneURL calls CloneURLFunc.
-func (mock *SCMMock) CloneURL(repo domain.Repo, token string) string {
-	callInfo := struct {
-		Repo  domain.Repo
-		Token string
-	}{
-		Repo:  repo,
-		Token: token,
-	}
-	mock.lockCloneURL.Lock()
-	mock.calls.CloneURL = append(mock.calls.CloneURL, callInfo)
-	mock.lockCloneURL.Unlock()
-	if mock.CloneURLFunc == nil {
-		var (
-			sOut string
-		)
-		return sOut
-	}
-	return mock.CloneURLFunc(repo, token)
-}
-
-// CloneURLCalls gets all the calls that were made to CloneURL.
-// Check the length with:
-//
-//	len(mockedSCM.CloneURLCalls())
-func (mock *SCMMock) CloneURLCalls() []struct {
-	Repo  domain.Repo
-	Token string
-} {
-	var calls []struct {
-		Repo  domain.Repo
-		Token string
-	}
-	mock.lockCloneURL.RLock()
-	calls = mock.calls.CloneURL
-	mock.lockCloneURL.RUnlock()
-	return calls
-}
-
-// CreateWebhook calls CreateWebhookFunc.
-func (mock *SCMMock) CreateWebhook(ctx context.Context, token string, fullName string, callbackURL string, secret string) (string, error) {
-	callInfo := struct {
-		Ctx         context.Context
-		Token       string
-		FullName    string
-		CallbackURL string
-		Secret      string
-	}{
-		Ctx:         ctx,
-		Token:       token,
-		FullName:    fullName,
-		CallbackURL: callbackURL,
-		Secret:      secret,
-	}
-	mock.lockCreateWebhook.Lock()
-	mock.calls.CreateWebhook = append(mock.calls.CreateWebhook, callInfo)
-	mock.lockCreateWebhook.Unlock()
-	if mock.CreateWebhookFunc == nil {
-		var (
-			sOut   string
-			errOut error
-		)
-		return sOut, errOut
-	}
-	return mock.CreateWebhookFunc(ctx, token, fullName, callbackURL, secret)
-}
-
-// CreateWebhookCalls gets all the calls that were made to CreateWebhook.
-// Check the length with:
-//
-//	len(mockedSCM.CreateWebhookCalls())
-func (mock *SCMMock) CreateWebhookCalls() []struct {
-	Ctx         context.Context
-	Token       string
-	FullName    string
-	CallbackURL string
-	Secret      string
-} {
-	var calls []struct {
-		Ctx         context.Context
-		Token       string
-		FullName    string
-		CallbackURL string
-		Secret      string
-	}
-	mock.lockCreateWebhook.RLock()
-	calls = mock.calls.CreateWebhook
-	mock.lockCreateWebhook.RUnlock()
-	return calls
-}
-
 // CurrentUser calls CurrentUserFunc.
 func (mock *SCMMock) CurrentUser(ctx context.Context, token string) (*domain.User, error) {
 	callInfo := struct {
@@ -943,53 +855,6 @@ func (mock *SCMMock) CurrentUserCalls() []struct {
 	mock.lockCurrentUser.RLock()
 	calls = mock.calls.CurrentUser
 	mock.lockCurrentUser.RUnlock()
-	return calls
-}
-
-// DeleteWebhook calls DeleteWebhookFunc.
-func (mock *SCMMock) DeleteWebhook(ctx context.Context, token string, fullName string, hookID string) error {
-	callInfo := struct {
-		Ctx      context.Context
-		Token    string
-		FullName string
-		HookID   string
-	}{
-		Ctx:      ctx,
-		Token:    token,
-		FullName: fullName,
-		HookID:   hookID,
-	}
-	mock.lockDeleteWebhook.Lock()
-	mock.calls.DeleteWebhook = append(mock.calls.DeleteWebhook, callInfo)
-	mock.lockDeleteWebhook.Unlock()
-	if mock.DeleteWebhookFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.DeleteWebhookFunc(ctx, token, fullName, hookID)
-}
-
-// DeleteWebhookCalls gets all the calls that were made to DeleteWebhook.
-// Check the length with:
-//
-//	len(mockedSCM.DeleteWebhookCalls())
-func (mock *SCMMock) DeleteWebhookCalls() []struct {
-	Ctx      context.Context
-	Token    string
-	FullName string
-	HookID   string
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Token    string
-		FullName string
-		HookID   string
-	}
-	mock.lockDeleteWebhook.RLock()
-	calls = mock.calls.DeleteWebhook
-	mock.lockDeleteWebhook.RUnlock()
 	return calls
 }
 
@@ -1037,130 +902,6 @@ func (mock *SCMMock) ExchangeCalls() []struct {
 	return calls
 }
 
-// GetRepo calls GetRepoFunc.
-func (mock *SCMMock) GetRepo(ctx context.Context, token string, fullName string) (*domain.Repo, error) {
-	callInfo := struct {
-		Ctx      context.Context
-		Token    string
-		FullName string
-	}{
-		Ctx:      ctx,
-		Token:    token,
-		FullName: fullName,
-	}
-	mock.lockGetRepo.Lock()
-	mock.calls.GetRepo = append(mock.calls.GetRepo, callInfo)
-	mock.lockGetRepo.Unlock()
-	if mock.GetRepoFunc == nil {
-		var (
-			repoOut *domain.Repo
-			errOut  error
-		)
-		return repoOut, errOut
-	}
-	return mock.GetRepoFunc(ctx, token, fullName)
-}
-
-// GetRepoCalls gets all the calls that were made to GetRepo.
-// Check the length with:
-//
-//	len(mockedSCM.GetRepoCalls())
-func (mock *SCMMock) GetRepoCalls() []struct {
-	Ctx      context.Context
-	Token    string
-	FullName string
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Token    string
-		FullName string
-	}
-	mock.lockGetRepo.RLock()
-	calls = mock.calls.GetRepo
-	mock.lockGetRepo.RUnlock()
-	return calls
-}
-
-// ListRepos calls ListReposFunc.
-func (mock *SCMMock) ListRepos(ctx context.Context, token string) ([]domain.Repo, error) {
-	callInfo := struct {
-		Ctx   context.Context
-		Token string
-	}{
-		Ctx:   ctx,
-		Token: token,
-	}
-	mock.lockListRepos.Lock()
-	mock.calls.ListRepos = append(mock.calls.ListRepos, callInfo)
-	mock.lockListRepos.Unlock()
-	if mock.ListReposFunc == nil {
-		var (
-			reposOut []domain.Repo
-			errOut   error
-		)
-		return reposOut, errOut
-	}
-	return mock.ListReposFunc(ctx, token)
-}
-
-// ListReposCalls gets all the calls that were made to ListRepos.
-// Check the length with:
-//
-//	len(mockedSCM.ListReposCalls())
-func (mock *SCMMock) ListReposCalls() []struct {
-	Ctx   context.Context
-	Token string
-} {
-	var calls []struct {
-		Ctx   context.Context
-		Token string
-	}
-	mock.lockListRepos.RLock()
-	calls = mock.calls.ListRepos
-	mock.lockListRepos.RUnlock()
-	return calls
-}
-
-// ParsePush calls ParsePushFunc.
-func (mock *SCMMock) ParsePush(r *http.Request, secret string) (*domain.PushEvent, error) {
-	callInfo := struct {
-		R      *http.Request
-		Secret string
-	}{
-		R:      r,
-		Secret: secret,
-	}
-	mock.lockParsePush.Lock()
-	mock.calls.ParsePush = append(mock.calls.ParsePush, callInfo)
-	mock.lockParsePush.Unlock()
-	if mock.ParsePushFunc == nil {
-		var (
-			pushEventOut *domain.PushEvent
-			errOut       error
-		)
-		return pushEventOut, errOut
-	}
-	return mock.ParsePushFunc(r, secret)
-}
-
-// ParsePushCalls gets all the calls that were made to ParsePush.
-// Check the length with:
-//
-//	len(mockedSCM.ParsePushCalls())
-func (mock *SCMMock) ParsePushCalls() []struct {
-	R      *http.Request
-	Secret string
-} {
-	var calls []struct {
-		R      *http.Request
-		Secret string
-	}
-	mock.lockParsePush.RLock()
-	calls = mock.calls.ParsePush
-	mock.lockParsePush.RUnlock()
-	return calls
-}
-
 // Provider calls ProviderFunc.
 func (mock *SCMMock) Provider() domain.Provider {
 	callInfo := struct {
@@ -1201,53 +942,53 @@ var _ domain.Store = &StoreMock{}
 //
 //		// make and configure a mocked domain.Store
 //		mockedStore := &StoreMock{
-//			CreateDeployFunc: func(ctx context.Context, d *domain.Deploy) error {
-//				panic("mock out the CreateDeploy method")
+//			CreateAccountFunc: func(ctx context.Context, a *domain.Account, credential domain.Credential) error {
+//				panic("mock out the CreateAccount method")
 //			},
-//			CreateInstanceFunc: func(ctx context.Context, i *domain.Instance) error {
-//				panic("mock out the CreateInstance method")
+//			CreateEnvironmentFunc: func(ctx context.Context, e *domain.Environment) error {
+//				panic("mock out the CreateEnvironment method")
 //			},
-//			CreateStackFunc: func(ctx context.Context, s *domain.Stack) error {
-//				panic("mock out the CreateStack method")
+//			CreateRunFunc: func(ctx context.Context, r *domain.Run) error {
+//				panic("mock out the CreateRun method")
 //			},
-//			DeleteInstanceFunc: func(ctx context.Context, id string) error {
-//				panic("mock out the DeleteInstance method")
+//			DeleteEnvironmentFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the DeleteEnvironment method")
 //			},
-//			DeleteStackFunc: func(ctx context.Context, id string) error {
-//				panic("mock out the DeleteStack method")
+//			GetAccountFunc: func(ctx context.Context, id string) (*domain.Account, error) {
+//				panic("mock out the GetAccount method")
 //			},
-//			FindStacksByRepoFunc: func(ctx context.Context, provider domain.Provider, fullName string) ([]domain.Stack, error) {
-//				panic("mock out the FindStacksByRepo method")
+//			GetAccountByOwnerFunc: func(ctx context.Context, userID string) (*domain.Account, error) {
+//				panic("mock out the GetAccountByOwner method")
 //			},
-//			GetCredentialFunc: func(ctx context.Context, userID string) (string, error) {
-//				panic("mock out the GetCredential method")
+//			GetAccountCredentialFunc: func(ctx context.Context, accountID string) (domain.Credential, error) {
+//				panic("mock out the GetAccountCredential method")
 //			},
-//			GetInstanceFunc: func(ctx context.Context, id string) (*domain.Instance, error) {
-//				panic("mock out the GetInstance method")
+//			GetBootstrapStateFunc: func(ctx context.Context, accountID string) ([]byte, error) {
+//				panic("mock out the GetBootstrapState method")
 //			},
-//			GetStackFunc: func(ctx context.Context, id string) (*domain.Stack, error) {
-//				panic("mock out the GetStack method")
+//			GetEnvironmentFunc: func(ctx context.Context, id string) (*domain.Environment, error) {
+//				panic("mock out the GetEnvironment method")
 //			},
 //			GetUserFunc: func(ctx context.Context, id string) (*domain.User, error) {
 //				panic("mock out the GetUser method")
 //			},
-//			ListDeploysFunc: func(ctx context.Context, instanceID string, limit int) ([]domain.Deploy, error) {
-//				panic("mock out the ListDeploys method")
+//			ListEnvironmentsFunc: func(ctx context.Context, accountID string) ([]domain.Environment, error) {
+//				panic("mock out the ListEnvironments method")
 //			},
-//			ListInstancesFunc: func(ctx context.Context, stackID string) ([]domain.Instance, error) {
-//				panic("mock out the ListInstances method")
+//			ListRunsFunc: func(ctx context.Context, environmentID string, limit int) ([]domain.Run, error) {
+//				panic("mock out the ListRuns method")
 //			},
-//			ListStacksFunc: func(ctx context.Context) ([]domain.Stack, error) {
-//				panic("mock out the ListStacks method")
+//			SaveBootstrapStateFunc: func(ctx context.Context, accountID string, state []byte) error {
+//				panic("mock out the SaveBootstrapState method")
 //			},
-//			SaveCredentialFunc: func(ctx context.Context, userID string, token string) error {
-//				panic("mock out the SaveCredential method")
+//			UpdateAccountFunc: func(ctx context.Context, a *domain.Account) error {
+//				panic("mock out the UpdateAccount method")
 //			},
-//			UpdateDeployFunc: func(ctx context.Context, d *domain.Deploy) error {
-//				panic("mock out the UpdateDeploy method")
+//			UpdateEnvironmentFunc: func(ctx context.Context, e *domain.Environment) error {
+//				panic("mock out the UpdateEnvironment method")
 //			},
-//			UpdateInstanceFunc: func(ctx context.Context, i *domain.Instance) error {
-//				panic("mock out the UpdateInstance method")
+//			UpdateRunFunc: func(ctx context.Context, r *domain.Run) error {
+//				panic("mock out the UpdateRun method")
 //			},
 //			UpsertUserFunc: func(ctx context.Context, u *domain.User) error {
 //				panic("mock out the UpsertUser method")
@@ -1259,119 +1000,119 @@ var _ domain.Store = &StoreMock{}
 //
 //	}
 type StoreMock struct {
-	// CreateDeployFunc mocks the CreateDeploy method.
-	CreateDeployFunc func(ctx context.Context, d *domain.Deploy) error
+	// CreateAccountFunc mocks the CreateAccount method.
+	CreateAccountFunc func(ctx context.Context, a *domain.Account, credential domain.Credential) error
 
-	// CreateInstanceFunc mocks the CreateInstance method.
-	CreateInstanceFunc func(ctx context.Context, i *domain.Instance) error
+	// CreateEnvironmentFunc mocks the CreateEnvironment method.
+	CreateEnvironmentFunc func(ctx context.Context, e *domain.Environment) error
 
-	// CreateStackFunc mocks the CreateStack method.
-	CreateStackFunc func(ctx context.Context, s *domain.Stack) error
+	// CreateRunFunc mocks the CreateRun method.
+	CreateRunFunc func(ctx context.Context, r *domain.Run) error
 
-	// DeleteInstanceFunc mocks the DeleteInstance method.
-	DeleteInstanceFunc func(ctx context.Context, id string) error
+	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
+	DeleteEnvironmentFunc func(ctx context.Context, id string) error
 
-	// DeleteStackFunc mocks the DeleteStack method.
-	DeleteStackFunc func(ctx context.Context, id string) error
+	// GetAccountFunc mocks the GetAccount method.
+	GetAccountFunc func(ctx context.Context, id string) (*domain.Account, error)
 
-	// FindStacksByRepoFunc mocks the FindStacksByRepo method.
-	FindStacksByRepoFunc func(ctx context.Context, provider domain.Provider, fullName string) ([]domain.Stack, error)
+	// GetAccountByOwnerFunc mocks the GetAccountByOwner method.
+	GetAccountByOwnerFunc func(ctx context.Context, userID string) (*domain.Account, error)
 
-	// GetCredentialFunc mocks the GetCredential method.
-	GetCredentialFunc func(ctx context.Context, userID string) (string, error)
+	// GetAccountCredentialFunc mocks the GetAccountCredential method.
+	GetAccountCredentialFunc func(ctx context.Context, accountID string) (domain.Credential, error)
 
-	// GetInstanceFunc mocks the GetInstance method.
-	GetInstanceFunc func(ctx context.Context, id string) (*domain.Instance, error)
+	// GetBootstrapStateFunc mocks the GetBootstrapState method.
+	GetBootstrapStateFunc func(ctx context.Context, accountID string) ([]byte, error)
 
-	// GetStackFunc mocks the GetStack method.
-	GetStackFunc func(ctx context.Context, id string) (*domain.Stack, error)
+	// GetEnvironmentFunc mocks the GetEnvironment method.
+	GetEnvironmentFunc func(ctx context.Context, id string) (*domain.Environment, error)
 
 	// GetUserFunc mocks the GetUser method.
 	GetUserFunc func(ctx context.Context, id string) (*domain.User, error)
 
-	// ListDeploysFunc mocks the ListDeploys method.
-	ListDeploysFunc func(ctx context.Context, instanceID string, limit int) ([]domain.Deploy, error)
+	// ListEnvironmentsFunc mocks the ListEnvironments method.
+	ListEnvironmentsFunc func(ctx context.Context, accountID string) ([]domain.Environment, error)
 
-	// ListInstancesFunc mocks the ListInstances method.
-	ListInstancesFunc func(ctx context.Context, stackID string) ([]domain.Instance, error)
+	// ListRunsFunc mocks the ListRuns method.
+	ListRunsFunc func(ctx context.Context, environmentID string, limit int) ([]domain.Run, error)
 
-	// ListStacksFunc mocks the ListStacks method.
-	ListStacksFunc func(ctx context.Context) ([]domain.Stack, error)
+	// SaveBootstrapStateFunc mocks the SaveBootstrapState method.
+	SaveBootstrapStateFunc func(ctx context.Context, accountID string, state []byte) error
 
-	// SaveCredentialFunc mocks the SaveCredential method.
-	SaveCredentialFunc func(ctx context.Context, userID string, token string) error
+	// UpdateAccountFunc mocks the UpdateAccount method.
+	UpdateAccountFunc func(ctx context.Context, a *domain.Account) error
 
-	// UpdateDeployFunc mocks the UpdateDeploy method.
-	UpdateDeployFunc func(ctx context.Context, d *domain.Deploy) error
+	// UpdateEnvironmentFunc mocks the UpdateEnvironment method.
+	UpdateEnvironmentFunc func(ctx context.Context, e *domain.Environment) error
 
-	// UpdateInstanceFunc mocks the UpdateInstance method.
-	UpdateInstanceFunc func(ctx context.Context, i *domain.Instance) error
+	// UpdateRunFunc mocks the UpdateRun method.
+	UpdateRunFunc func(ctx context.Context, r *domain.Run) error
 
 	// UpsertUserFunc mocks the UpsertUser method.
 	UpsertUserFunc func(ctx context.Context, u *domain.User) error
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// CreateDeploy holds details about calls to the CreateDeploy method.
-		CreateDeploy []struct {
+		// CreateAccount holds details about calls to the CreateAccount method.
+		CreateAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// D is the d argument value.
-			D *domain.Deploy
+			// A is the a argument value.
+			A *domain.Account
+			// Credential is the credential argument value.
+			Credential domain.Credential
 		}
-		// CreateInstance holds details about calls to the CreateInstance method.
-		CreateInstance []struct {
+		// CreateEnvironment holds details about calls to the CreateEnvironment method.
+		CreateEnvironment []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// I is the i argument value.
-			I *domain.Instance
+			// E is the e argument value.
+			E *domain.Environment
 		}
-		// CreateStack holds details about calls to the CreateStack method.
-		CreateStack []struct {
+		// CreateRun holds details about calls to the CreateRun method.
+		CreateRun []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// S is the s argument value.
-			S *domain.Stack
+			// R is the r argument value.
+			R *domain.Run
 		}
-		// DeleteInstance holds details about calls to the DeleteInstance method.
-		DeleteInstance []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// ID is the id argument value.
-			ID string
-		}
-		// DeleteStack holds details about calls to the DeleteStack method.
-		DeleteStack []struct {
+		// DeleteEnvironment holds details about calls to the DeleteEnvironment method.
+		DeleteEnvironment []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
 		}
-		// FindStacksByRepo holds details about calls to the FindStacksByRepo method.
-		FindStacksByRepo []struct {
+		// GetAccount holds details about calls to the GetAccount method.
+		GetAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Provider is the provider argument value.
-			Provider domain.Provider
-			// FullName is the fullName argument value.
-			FullName string
+			// ID is the id argument value.
+			ID string
 		}
-		// GetCredential holds details about calls to the GetCredential method.
-		GetCredential []struct {
+		// GetAccountByOwner holds details about calls to the GetAccountByOwner method.
+		GetAccountByOwner []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// UserID is the userID argument value.
 			UserID string
 		}
-		// GetInstance holds details about calls to the GetInstance method.
-		GetInstance []struct {
+		// GetAccountCredential holds details about calls to the GetAccountCredential method.
+		GetAccountCredential []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// ID is the id argument value.
-			ID string
+			// AccountID is the accountID argument value.
+			AccountID string
 		}
-		// GetStack holds details about calls to the GetStack method.
-		GetStack []struct {
+		// GetBootstrapState holds details about calls to the GetBootstrapState method.
+		GetBootstrapState []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// AccountID is the accountID argument value.
+			AccountID string
+		}
+		// GetEnvironment holds details about calls to the GetEnvironment method.
+		GetEnvironment []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// ID is the id argument value.
@@ -1384,49 +1125,51 @@ type StoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
-		// ListDeploys holds details about calls to the ListDeploys method.
-		ListDeploys []struct {
+		// ListEnvironments holds details about calls to the ListEnvironments method.
+		ListEnvironments []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// InstanceID is the instanceID argument value.
-			InstanceID string
+			// AccountID is the accountID argument value.
+			AccountID string
+		}
+		// ListRuns holds details about calls to the ListRuns method.
+		ListRuns []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
 			// Limit is the limit argument value.
 			Limit int
 		}
-		// ListInstances holds details about calls to the ListInstances method.
-		ListInstances []struct {
+		// SaveBootstrapState holds details about calls to the SaveBootstrapState method.
+		SaveBootstrapState []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// StackID is the stackID argument value.
-			StackID string
+			// AccountID is the accountID argument value.
+			AccountID string
+			// State is the state argument value.
+			State []byte
 		}
-		// ListStacks holds details about calls to the ListStacks method.
-		ListStacks []struct {
+		// UpdateAccount holds details about calls to the UpdateAccount method.
+		UpdateAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// A is the a argument value.
+			A *domain.Account
 		}
-		// SaveCredential holds details about calls to the SaveCredential method.
-		SaveCredential []struct {
+		// UpdateEnvironment holds details about calls to the UpdateEnvironment method.
+		UpdateEnvironment []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// UserID is the userID argument value.
-			UserID string
-			// Token is the token argument value.
-			Token string
+			// E is the e argument value.
+			E *domain.Environment
 		}
-		// UpdateDeploy holds details about calls to the UpdateDeploy method.
-		UpdateDeploy []struct {
+		// UpdateRun holds details about calls to the UpdateRun method.
+		UpdateRun []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// D is the d argument value.
-			D *domain.Deploy
-		}
-		// UpdateInstance holds details about calls to the UpdateInstance method.
-		UpdateInstance []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// I is the i argument value.
-			I *domain.Instance
+			// R is the r argument value.
+			R *domain.Run
 		}
 		// UpsertUser holds details about calls to the UpsertUser method.
 		UpsertUser []struct {
@@ -1436,144 +1179,148 @@ type StoreMock struct {
 			U *domain.User
 		}
 	}
-	lockCreateDeploy     sync.RWMutex
-	lockCreateInstance   sync.RWMutex
-	lockCreateStack      sync.RWMutex
-	lockDeleteInstance   sync.RWMutex
-	lockDeleteStack      sync.RWMutex
-	lockFindStacksByRepo sync.RWMutex
-	lockGetCredential    sync.RWMutex
-	lockGetInstance      sync.RWMutex
-	lockGetStack         sync.RWMutex
-	lockGetUser          sync.RWMutex
-	lockListDeploys      sync.RWMutex
-	lockListInstances    sync.RWMutex
-	lockListStacks       sync.RWMutex
-	lockSaveCredential   sync.RWMutex
-	lockUpdateDeploy     sync.RWMutex
-	lockUpdateInstance   sync.RWMutex
-	lockUpsertUser       sync.RWMutex
+	lockCreateAccount        sync.RWMutex
+	lockCreateEnvironment    sync.RWMutex
+	lockCreateRun            sync.RWMutex
+	lockDeleteEnvironment    sync.RWMutex
+	lockGetAccount           sync.RWMutex
+	lockGetAccountByOwner    sync.RWMutex
+	lockGetAccountCredential sync.RWMutex
+	lockGetBootstrapState    sync.RWMutex
+	lockGetEnvironment       sync.RWMutex
+	lockGetUser              sync.RWMutex
+	lockListEnvironments     sync.RWMutex
+	lockListRuns             sync.RWMutex
+	lockSaveBootstrapState   sync.RWMutex
+	lockUpdateAccount        sync.RWMutex
+	lockUpdateEnvironment    sync.RWMutex
+	lockUpdateRun            sync.RWMutex
+	lockUpsertUser           sync.RWMutex
 }
 
-// CreateDeploy calls CreateDeployFunc.
-func (mock *StoreMock) CreateDeploy(ctx context.Context, d *domain.Deploy) error {
+// CreateAccount calls CreateAccountFunc.
+func (mock *StoreMock) CreateAccount(ctx context.Context, a *domain.Account, credential domain.Credential) error {
 	callInfo := struct {
-		Ctx context.Context
-		D   *domain.Deploy
+		Ctx        context.Context
+		A          *domain.Account
+		Credential domain.Credential
 	}{
-		Ctx: ctx,
-		D:   d,
+		Ctx:        ctx,
+		A:          a,
+		Credential: credential,
 	}
-	mock.lockCreateDeploy.Lock()
-	mock.calls.CreateDeploy = append(mock.calls.CreateDeploy, callInfo)
-	mock.lockCreateDeploy.Unlock()
-	if mock.CreateDeployFunc == nil {
+	mock.lockCreateAccount.Lock()
+	mock.calls.CreateAccount = append(mock.calls.CreateAccount, callInfo)
+	mock.lockCreateAccount.Unlock()
+	if mock.CreateAccountFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.CreateDeployFunc(ctx, d)
+	return mock.CreateAccountFunc(ctx, a, credential)
 }
 
-// CreateDeployCalls gets all the calls that were made to CreateDeploy.
+// CreateAccountCalls gets all the calls that were made to CreateAccount.
 // Check the length with:
 //
-//	len(mockedStore.CreateDeployCalls())
-func (mock *StoreMock) CreateDeployCalls() []struct {
-	Ctx context.Context
-	D   *domain.Deploy
+//	len(mockedStore.CreateAccountCalls())
+func (mock *StoreMock) CreateAccountCalls() []struct {
+	Ctx        context.Context
+	A          *domain.Account
+	Credential domain.Credential
 } {
 	var calls []struct {
-		Ctx context.Context
-		D   *domain.Deploy
+		Ctx        context.Context
+		A          *domain.Account
+		Credential domain.Credential
 	}
-	mock.lockCreateDeploy.RLock()
-	calls = mock.calls.CreateDeploy
-	mock.lockCreateDeploy.RUnlock()
+	mock.lockCreateAccount.RLock()
+	calls = mock.calls.CreateAccount
+	mock.lockCreateAccount.RUnlock()
 	return calls
 }
 
-// CreateInstance calls CreateInstanceFunc.
-func (mock *StoreMock) CreateInstance(ctx context.Context, i *domain.Instance) error {
+// CreateEnvironment calls CreateEnvironmentFunc.
+func (mock *StoreMock) CreateEnvironment(ctx context.Context, e *domain.Environment) error {
 	callInfo := struct {
 		Ctx context.Context
-		I   *domain.Instance
+		E   *domain.Environment
 	}{
 		Ctx: ctx,
-		I:   i,
+		E:   e,
 	}
-	mock.lockCreateInstance.Lock()
-	mock.calls.CreateInstance = append(mock.calls.CreateInstance, callInfo)
-	mock.lockCreateInstance.Unlock()
-	if mock.CreateInstanceFunc == nil {
+	mock.lockCreateEnvironment.Lock()
+	mock.calls.CreateEnvironment = append(mock.calls.CreateEnvironment, callInfo)
+	mock.lockCreateEnvironment.Unlock()
+	if mock.CreateEnvironmentFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.CreateInstanceFunc(ctx, i)
+	return mock.CreateEnvironmentFunc(ctx, e)
 }
 
-// CreateInstanceCalls gets all the calls that were made to CreateInstance.
+// CreateEnvironmentCalls gets all the calls that were made to CreateEnvironment.
 // Check the length with:
 //
-//	len(mockedStore.CreateInstanceCalls())
-func (mock *StoreMock) CreateInstanceCalls() []struct {
+//	len(mockedStore.CreateEnvironmentCalls())
+func (mock *StoreMock) CreateEnvironmentCalls() []struct {
 	Ctx context.Context
-	I   *domain.Instance
+	E   *domain.Environment
 } {
 	var calls []struct {
 		Ctx context.Context
-		I   *domain.Instance
+		E   *domain.Environment
 	}
-	mock.lockCreateInstance.RLock()
-	calls = mock.calls.CreateInstance
-	mock.lockCreateInstance.RUnlock()
+	mock.lockCreateEnvironment.RLock()
+	calls = mock.calls.CreateEnvironment
+	mock.lockCreateEnvironment.RUnlock()
 	return calls
 }
 
-// CreateStack calls CreateStackFunc.
-func (mock *StoreMock) CreateStack(ctx context.Context, s *domain.Stack) error {
+// CreateRun calls CreateRunFunc.
+func (mock *StoreMock) CreateRun(ctx context.Context, r *domain.Run) error {
 	callInfo := struct {
 		Ctx context.Context
-		S   *domain.Stack
+		R   *domain.Run
 	}{
 		Ctx: ctx,
-		S:   s,
+		R:   r,
 	}
-	mock.lockCreateStack.Lock()
-	mock.calls.CreateStack = append(mock.calls.CreateStack, callInfo)
-	mock.lockCreateStack.Unlock()
-	if mock.CreateStackFunc == nil {
+	mock.lockCreateRun.Lock()
+	mock.calls.CreateRun = append(mock.calls.CreateRun, callInfo)
+	mock.lockCreateRun.Unlock()
+	if mock.CreateRunFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.CreateStackFunc(ctx, s)
+	return mock.CreateRunFunc(ctx, r)
 }
 
-// CreateStackCalls gets all the calls that were made to CreateStack.
+// CreateRunCalls gets all the calls that were made to CreateRun.
 // Check the length with:
 //
-//	len(mockedStore.CreateStackCalls())
-func (mock *StoreMock) CreateStackCalls() []struct {
+//	len(mockedStore.CreateRunCalls())
+func (mock *StoreMock) CreateRunCalls() []struct {
 	Ctx context.Context
-	S   *domain.Stack
+	R   *domain.Run
 } {
 	var calls []struct {
 		Ctx context.Context
-		S   *domain.Stack
+		R   *domain.Run
 	}
-	mock.lockCreateStack.RLock()
-	calls = mock.calls.CreateStack
-	mock.lockCreateStack.RUnlock()
+	mock.lockCreateRun.RLock()
+	calls = mock.calls.CreateRun
+	mock.lockCreateRun.RUnlock()
 	return calls
 }
 
-// DeleteInstance calls DeleteInstanceFunc.
-func (mock *StoreMock) DeleteInstance(ctx context.Context, id string) error {
+// DeleteEnvironment calls DeleteEnvironmentFunc.
+func (mock *StoreMock) DeleteEnvironment(ctx context.Context, id string) error {
 	callInfo := struct {
 		Ctx context.Context
 		ID  string
@@ -1581,23 +1328,23 @@ func (mock *StoreMock) DeleteInstance(ctx context.Context, id string) error {
 		Ctx: ctx,
 		ID:  id,
 	}
-	mock.lockDeleteInstance.Lock()
-	mock.calls.DeleteInstance = append(mock.calls.DeleteInstance, callInfo)
-	mock.lockDeleteInstance.Unlock()
-	if mock.DeleteInstanceFunc == nil {
+	mock.lockDeleteEnvironment.Lock()
+	mock.calls.DeleteEnvironment = append(mock.calls.DeleteEnvironment, callInfo)
+	mock.lockDeleteEnvironment.Unlock()
+	if mock.DeleteEnvironmentFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.DeleteInstanceFunc(ctx, id)
+	return mock.DeleteEnvironmentFunc(ctx, id)
 }
 
-// DeleteInstanceCalls gets all the calls that were made to DeleteInstance.
+// DeleteEnvironmentCalls gets all the calls that were made to DeleteEnvironment.
 // Check the length with:
 //
-//	len(mockedStore.DeleteInstanceCalls())
-func (mock *StoreMock) DeleteInstanceCalls() []struct {
+//	len(mockedStore.DeleteEnvironmentCalls())
+func (mock *StoreMock) DeleteEnvironmentCalls() []struct {
 	Ctx context.Context
 	ID  string
 } {
@@ -1605,14 +1352,14 @@ func (mock *StoreMock) DeleteInstanceCalls() []struct {
 		Ctx context.Context
 		ID  string
 	}
-	mock.lockDeleteInstance.RLock()
-	calls = mock.calls.DeleteInstance
-	mock.lockDeleteInstance.RUnlock()
+	mock.lockDeleteEnvironment.RLock()
+	calls = mock.calls.DeleteEnvironment
+	mock.lockDeleteEnvironment.RUnlock()
 	return calls
 }
 
-// DeleteStack calls DeleteStackFunc.
-func (mock *StoreMock) DeleteStack(ctx context.Context, id string) error {
+// GetAccount calls GetAccountFunc.
+func (mock *StoreMock) GetAccount(ctx context.Context, id string) (*domain.Account, error) {
 	callInfo := struct {
 		Ctx context.Context
 		ID  string
@@ -1620,23 +1367,24 @@ func (mock *StoreMock) DeleteStack(ctx context.Context, id string) error {
 		Ctx: ctx,
 		ID:  id,
 	}
-	mock.lockDeleteStack.Lock()
-	mock.calls.DeleteStack = append(mock.calls.DeleteStack, callInfo)
-	mock.lockDeleteStack.Unlock()
-	if mock.DeleteStackFunc == nil {
+	mock.lockGetAccount.Lock()
+	mock.calls.GetAccount = append(mock.calls.GetAccount, callInfo)
+	mock.lockGetAccount.Unlock()
+	if mock.GetAccountFunc == nil {
 		var (
-			errOut error
+			accountOut *domain.Account
+			errOut     error
 		)
-		return errOut
+		return accountOut, errOut
 	}
-	return mock.DeleteStackFunc(ctx, id)
+	return mock.GetAccountFunc(ctx, id)
 }
 
-// DeleteStackCalls gets all the calls that were made to DeleteStack.
+// GetAccountCalls gets all the calls that were made to GetAccount.
 // Check the length with:
 //
-//	len(mockedStore.DeleteStackCalls())
-func (mock *StoreMock) DeleteStackCalls() []struct {
+//	len(mockedStore.GetAccountCalls())
+func (mock *StoreMock) GetAccountCalls() []struct {
 	Ctx context.Context
 	ID  string
 } {
@@ -1644,58 +1392,14 @@ func (mock *StoreMock) DeleteStackCalls() []struct {
 		Ctx context.Context
 		ID  string
 	}
-	mock.lockDeleteStack.RLock()
-	calls = mock.calls.DeleteStack
-	mock.lockDeleteStack.RUnlock()
+	mock.lockGetAccount.RLock()
+	calls = mock.calls.GetAccount
+	mock.lockGetAccount.RUnlock()
 	return calls
 }
 
-// FindStacksByRepo calls FindStacksByRepoFunc.
-func (mock *StoreMock) FindStacksByRepo(ctx context.Context, provider domain.Provider, fullName string) ([]domain.Stack, error) {
-	callInfo := struct {
-		Ctx      context.Context
-		Provider domain.Provider
-		FullName string
-	}{
-		Ctx:      ctx,
-		Provider: provider,
-		FullName: fullName,
-	}
-	mock.lockFindStacksByRepo.Lock()
-	mock.calls.FindStacksByRepo = append(mock.calls.FindStacksByRepo, callInfo)
-	mock.lockFindStacksByRepo.Unlock()
-	if mock.FindStacksByRepoFunc == nil {
-		var (
-			stacksOut []domain.Stack
-			errOut    error
-		)
-		return stacksOut, errOut
-	}
-	return mock.FindStacksByRepoFunc(ctx, provider, fullName)
-}
-
-// FindStacksByRepoCalls gets all the calls that were made to FindStacksByRepo.
-// Check the length with:
-//
-//	len(mockedStore.FindStacksByRepoCalls())
-func (mock *StoreMock) FindStacksByRepoCalls() []struct {
-	Ctx      context.Context
-	Provider domain.Provider
-	FullName string
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Provider domain.Provider
-		FullName string
-	}
-	mock.lockFindStacksByRepo.RLock()
-	calls = mock.calls.FindStacksByRepo
-	mock.lockFindStacksByRepo.RUnlock()
-	return calls
-}
-
-// GetCredential calls GetCredentialFunc.
-func (mock *StoreMock) GetCredential(ctx context.Context, userID string) (string, error) {
+// GetAccountByOwner calls GetAccountByOwnerFunc.
+func (mock *StoreMock) GetAccountByOwner(ctx context.Context, userID string) (*domain.Account, error) {
 	callInfo := struct {
 		Ctx    context.Context
 		UserID string
@@ -1703,24 +1407,24 @@ func (mock *StoreMock) GetCredential(ctx context.Context, userID string) (string
 		Ctx:    ctx,
 		UserID: userID,
 	}
-	mock.lockGetCredential.Lock()
-	mock.calls.GetCredential = append(mock.calls.GetCredential, callInfo)
-	mock.lockGetCredential.Unlock()
-	if mock.GetCredentialFunc == nil {
+	mock.lockGetAccountByOwner.Lock()
+	mock.calls.GetAccountByOwner = append(mock.calls.GetAccountByOwner, callInfo)
+	mock.lockGetAccountByOwner.Unlock()
+	if mock.GetAccountByOwnerFunc == nil {
 		var (
-			sOut   string
-			errOut error
+			accountOut *domain.Account
+			errOut     error
 		)
-		return sOut, errOut
+		return accountOut, errOut
 	}
-	return mock.GetCredentialFunc(ctx, userID)
+	return mock.GetAccountByOwnerFunc(ctx, userID)
 }
 
-// GetCredentialCalls gets all the calls that were made to GetCredential.
+// GetAccountByOwnerCalls gets all the calls that were made to GetAccountByOwner.
 // Check the length with:
 //
-//	len(mockedStore.GetCredentialCalls())
-func (mock *StoreMock) GetCredentialCalls() []struct {
+//	len(mockedStore.GetAccountByOwnerCalls())
+func (mock *StoreMock) GetAccountByOwnerCalls() []struct {
 	Ctx    context.Context
 	UserID string
 } {
@@ -1728,79 +1432,119 @@ func (mock *StoreMock) GetCredentialCalls() []struct {
 		Ctx    context.Context
 		UserID string
 	}
-	mock.lockGetCredential.RLock()
-	calls = mock.calls.GetCredential
-	mock.lockGetCredential.RUnlock()
+	mock.lockGetAccountByOwner.RLock()
+	calls = mock.calls.GetAccountByOwner
+	mock.lockGetAccountByOwner.RUnlock()
 	return calls
 }
 
-// GetInstance calls GetInstanceFunc.
-func (mock *StoreMock) GetInstance(ctx context.Context, id string) (*domain.Instance, error) {
+// GetAccountCredential calls GetAccountCredentialFunc.
+func (mock *StoreMock) GetAccountCredential(ctx context.Context, accountID string) (domain.Credential, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		AccountID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		AccountID: accountID,
 	}
-	mock.lockGetInstance.Lock()
-	mock.calls.GetInstance = append(mock.calls.GetInstance, callInfo)
-	mock.lockGetInstance.Unlock()
-	if mock.GetInstanceFunc == nil {
+	mock.lockGetAccountCredential.Lock()
+	mock.calls.GetAccountCredential = append(mock.calls.GetAccountCredential, callInfo)
+	mock.lockGetAccountCredential.Unlock()
+	if mock.GetAccountCredentialFunc == nil {
 		var (
-			instanceOut *domain.Instance
-			errOut      error
+			credentialOut domain.Credential
+			errOut        error
 		)
-		return instanceOut, errOut
+		return credentialOut, errOut
 	}
-	return mock.GetInstanceFunc(ctx, id)
+	return mock.GetAccountCredentialFunc(ctx, accountID)
 }
 
-// GetInstanceCalls gets all the calls that were made to GetInstance.
+// GetAccountCredentialCalls gets all the calls that were made to GetAccountCredential.
 // Check the length with:
 //
-//	len(mockedStore.GetInstanceCalls())
-func (mock *StoreMock) GetInstanceCalls() []struct {
-	Ctx context.Context
-	ID  string
+//	len(mockedStore.GetAccountCredentialCalls())
+func (mock *StoreMock) GetAccountCredentialCalls() []struct {
+	Ctx       context.Context
+	AccountID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		AccountID string
 	}
-	mock.lockGetInstance.RLock()
-	calls = mock.calls.GetInstance
-	mock.lockGetInstance.RUnlock()
+	mock.lockGetAccountCredential.RLock()
+	calls = mock.calls.GetAccountCredential
+	mock.lockGetAccountCredential.RUnlock()
 	return calls
 }
 
-// GetStack calls GetStackFunc.
-func (mock *StoreMock) GetStack(ctx context.Context, id string) (*domain.Stack, error) {
+// GetBootstrapState calls GetBootstrapStateFunc.
+func (mock *StoreMock) GetBootstrapState(ctx context.Context, accountID string) ([]byte, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		AccountID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		AccountID: accountID,
 	}
-	mock.lockGetStack.Lock()
-	mock.calls.GetStack = append(mock.calls.GetStack, callInfo)
-	mock.lockGetStack.Unlock()
-	if mock.GetStackFunc == nil {
+	mock.lockGetBootstrapState.Lock()
+	mock.calls.GetBootstrapState = append(mock.calls.GetBootstrapState, callInfo)
+	mock.lockGetBootstrapState.Unlock()
+	if mock.GetBootstrapStateFunc == nil {
 		var (
-			stackOut *domain.Stack
+			bytesOut []byte
 			errOut   error
 		)
-		return stackOut, errOut
+		return bytesOut, errOut
 	}
-	return mock.GetStackFunc(ctx, id)
+	return mock.GetBootstrapStateFunc(ctx, accountID)
 }
 
-// GetStackCalls gets all the calls that were made to GetStack.
+// GetBootstrapStateCalls gets all the calls that were made to GetBootstrapState.
 // Check the length with:
 //
-//	len(mockedStore.GetStackCalls())
-func (mock *StoreMock) GetStackCalls() []struct {
+//	len(mockedStore.GetBootstrapStateCalls())
+func (mock *StoreMock) GetBootstrapStateCalls() []struct {
+	Ctx       context.Context
+	AccountID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		AccountID string
+	}
+	mock.lockGetBootstrapState.RLock()
+	calls = mock.calls.GetBootstrapState
+	mock.lockGetBootstrapState.RUnlock()
+	return calls
+}
+
+// GetEnvironment calls GetEnvironmentFunc.
+func (mock *StoreMock) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetEnvironment.Lock()
+	mock.calls.GetEnvironment = append(mock.calls.GetEnvironment, callInfo)
+	mock.lockGetEnvironment.Unlock()
+	if mock.GetEnvironmentFunc == nil {
+		var (
+			environmentOut *domain.Environment
+			errOut         error
+		)
+		return environmentOut, errOut
+	}
+	return mock.GetEnvironmentFunc(ctx, id)
+}
+
+// GetEnvironmentCalls gets all the calls that were made to GetEnvironment.
+// Check the length with:
+//
+//	len(mockedStore.GetEnvironmentCalls())
+func (mock *StoreMock) GetEnvironmentCalls() []struct {
 	Ctx context.Context
 	ID  string
 } {
@@ -1808,9 +1552,9 @@ func (mock *StoreMock) GetStackCalls() []struct {
 		Ctx context.Context
 		ID  string
 	}
-	mock.lockGetStack.RLock()
-	calls = mock.calls.GetStack
-	mock.lockGetStack.RUnlock()
+	mock.lockGetEnvironment.RLock()
+	calls = mock.calls.GetEnvironment
+	mock.lockGetEnvironment.RUnlock()
 	return calls
 }
 
@@ -1854,244 +1598,247 @@ func (mock *StoreMock) GetUserCalls() []struct {
 	return calls
 }
 
-// ListDeploys calls ListDeploysFunc.
-func (mock *StoreMock) ListDeploys(ctx context.Context, instanceID string, limit int) ([]domain.Deploy, error) {
+// ListEnvironments calls ListEnvironmentsFunc.
+func (mock *StoreMock) ListEnvironments(ctx context.Context, accountID string) ([]domain.Environment, error) {
 	callInfo := struct {
-		Ctx        context.Context
-		InstanceID string
-		Limit      int
+		Ctx       context.Context
+		AccountID string
 	}{
-		Ctx:        ctx,
-		InstanceID: instanceID,
-		Limit:      limit,
+		Ctx:       ctx,
+		AccountID: accountID,
 	}
-	mock.lockListDeploys.Lock()
-	mock.calls.ListDeploys = append(mock.calls.ListDeploys, callInfo)
-	mock.lockListDeploys.Unlock()
-	if mock.ListDeploysFunc == nil {
+	mock.lockListEnvironments.Lock()
+	mock.calls.ListEnvironments = append(mock.calls.ListEnvironments, callInfo)
+	mock.lockListEnvironments.Unlock()
+	if mock.ListEnvironmentsFunc == nil {
 		var (
-			deploysOut []domain.Deploy
-			errOut     error
+			environmentsOut []domain.Environment
+			errOut          error
 		)
-		return deploysOut, errOut
+		return environmentsOut, errOut
 	}
-	return mock.ListDeploysFunc(ctx, instanceID, limit)
+	return mock.ListEnvironmentsFunc(ctx, accountID)
 }
 
-// ListDeploysCalls gets all the calls that were made to ListDeploys.
+// ListEnvironmentsCalls gets all the calls that were made to ListEnvironments.
 // Check the length with:
 //
-//	len(mockedStore.ListDeploysCalls())
-func (mock *StoreMock) ListDeploysCalls() []struct {
-	Ctx        context.Context
-	InstanceID string
-	Limit      int
+//	len(mockedStore.ListEnvironmentsCalls())
+func (mock *StoreMock) ListEnvironmentsCalls() []struct {
+	Ctx       context.Context
+	AccountID string
 } {
 	var calls []struct {
-		Ctx        context.Context
-		InstanceID string
-		Limit      int
+		Ctx       context.Context
+		AccountID string
 	}
-	mock.lockListDeploys.RLock()
-	calls = mock.calls.ListDeploys
-	mock.lockListDeploys.RUnlock()
+	mock.lockListEnvironments.RLock()
+	calls = mock.calls.ListEnvironments
+	mock.lockListEnvironments.RUnlock()
 	return calls
 }
 
-// ListInstances calls ListInstancesFunc.
-func (mock *StoreMock) ListInstances(ctx context.Context, stackID string) ([]domain.Instance, error) {
+// ListRuns calls ListRunsFunc.
+func (mock *StoreMock) ListRuns(ctx context.Context, environmentID string, limit int) ([]domain.Run, error) {
 	callInfo := struct {
-		Ctx     context.Context
-		StackID string
+		Ctx           context.Context
+		EnvironmentID string
+		Limit         int
 	}{
-		Ctx:     ctx,
-		StackID: stackID,
+		Ctx:           ctx,
+		EnvironmentID: environmentID,
+		Limit:         limit,
 	}
-	mock.lockListInstances.Lock()
-	mock.calls.ListInstances = append(mock.calls.ListInstances, callInfo)
-	mock.lockListInstances.Unlock()
-	if mock.ListInstancesFunc == nil {
+	mock.lockListRuns.Lock()
+	mock.calls.ListRuns = append(mock.calls.ListRuns, callInfo)
+	mock.lockListRuns.Unlock()
+	if mock.ListRunsFunc == nil {
 		var (
-			instancesOut []domain.Instance
-			errOut       error
+			runsOut []domain.Run
+			errOut  error
 		)
-		return instancesOut, errOut
+		return runsOut, errOut
 	}
-	return mock.ListInstancesFunc(ctx, stackID)
+	return mock.ListRunsFunc(ctx, environmentID, limit)
 }
 
-// ListInstancesCalls gets all the calls that were made to ListInstances.
+// ListRunsCalls gets all the calls that were made to ListRuns.
 // Check the length with:
 //
-//	len(mockedStore.ListInstancesCalls())
-func (mock *StoreMock) ListInstancesCalls() []struct {
-	Ctx     context.Context
-	StackID string
+//	len(mockedStore.ListRunsCalls())
+func (mock *StoreMock) ListRunsCalls() []struct {
+	Ctx           context.Context
+	EnvironmentID string
+	Limit         int
 } {
 	var calls []struct {
-		Ctx     context.Context
-		StackID string
+		Ctx           context.Context
+		EnvironmentID string
+		Limit         int
 	}
-	mock.lockListInstances.RLock()
-	calls = mock.calls.ListInstances
-	mock.lockListInstances.RUnlock()
+	mock.lockListRuns.RLock()
+	calls = mock.calls.ListRuns
+	mock.lockListRuns.RUnlock()
 	return calls
 }
 
-// ListStacks calls ListStacksFunc.
-func (mock *StoreMock) ListStacks(ctx context.Context) ([]domain.Stack, error) {
+// SaveBootstrapState calls SaveBootstrapStateFunc.
+func (mock *StoreMock) SaveBootstrapState(ctx context.Context, accountID string, state []byte) error {
 	callInfo := struct {
-		Ctx context.Context
+		Ctx       context.Context
+		AccountID string
+		State     []byte
 	}{
-		Ctx: ctx,
+		Ctx:       ctx,
+		AccountID: accountID,
+		State:     state,
 	}
-	mock.lockListStacks.Lock()
-	mock.calls.ListStacks = append(mock.calls.ListStacks, callInfo)
-	mock.lockListStacks.Unlock()
-	if mock.ListStacksFunc == nil {
-		var (
-			stacksOut []domain.Stack
-			errOut    error
-		)
-		return stacksOut, errOut
-	}
-	return mock.ListStacksFunc(ctx)
-}
-
-// ListStacksCalls gets all the calls that were made to ListStacks.
-// Check the length with:
-//
-//	len(mockedStore.ListStacksCalls())
-func (mock *StoreMock) ListStacksCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockListStacks.RLock()
-	calls = mock.calls.ListStacks
-	mock.lockListStacks.RUnlock()
-	return calls
-}
-
-// SaveCredential calls SaveCredentialFunc.
-func (mock *StoreMock) SaveCredential(ctx context.Context, userID string, token string) error {
-	callInfo := struct {
-		Ctx    context.Context
-		UserID string
-		Token  string
-	}{
-		Ctx:    ctx,
-		UserID: userID,
-		Token:  token,
-	}
-	mock.lockSaveCredential.Lock()
-	mock.calls.SaveCredential = append(mock.calls.SaveCredential, callInfo)
-	mock.lockSaveCredential.Unlock()
-	if mock.SaveCredentialFunc == nil {
+	mock.lockSaveBootstrapState.Lock()
+	mock.calls.SaveBootstrapState = append(mock.calls.SaveBootstrapState, callInfo)
+	mock.lockSaveBootstrapState.Unlock()
+	if mock.SaveBootstrapStateFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.SaveCredentialFunc(ctx, userID, token)
+	return mock.SaveBootstrapStateFunc(ctx, accountID, state)
 }
 
-// SaveCredentialCalls gets all the calls that were made to SaveCredential.
+// SaveBootstrapStateCalls gets all the calls that were made to SaveBootstrapState.
 // Check the length with:
 //
-//	len(mockedStore.SaveCredentialCalls())
-func (mock *StoreMock) SaveCredentialCalls() []struct {
-	Ctx    context.Context
-	UserID string
-	Token  string
+//	len(mockedStore.SaveBootstrapStateCalls())
+func (mock *StoreMock) SaveBootstrapStateCalls() []struct {
+	Ctx       context.Context
+	AccountID string
+	State     []byte
 } {
 	var calls []struct {
-		Ctx    context.Context
-		UserID string
-		Token  string
+		Ctx       context.Context
+		AccountID string
+		State     []byte
 	}
-	mock.lockSaveCredential.RLock()
-	calls = mock.calls.SaveCredential
-	mock.lockSaveCredential.RUnlock()
+	mock.lockSaveBootstrapState.RLock()
+	calls = mock.calls.SaveBootstrapState
+	mock.lockSaveBootstrapState.RUnlock()
 	return calls
 }
 
-// UpdateDeploy calls UpdateDeployFunc.
-func (mock *StoreMock) UpdateDeploy(ctx context.Context, d *domain.Deploy) error {
+// UpdateAccount calls UpdateAccountFunc.
+func (mock *StoreMock) UpdateAccount(ctx context.Context, a *domain.Account) error {
 	callInfo := struct {
 		Ctx context.Context
-		D   *domain.Deploy
+		A   *domain.Account
 	}{
 		Ctx: ctx,
-		D:   d,
+		A:   a,
 	}
-	mock.lockUpdateDeploy.Lock()
-	mock.calls.UpdateDeploy = append(mock.calls.UpdateDeploy, callInfo)
-	mock.lockUpdateDeploy.Unlock()
-	if mock.UpdateDeployFunc == nil {
+	mock.lockUpdateAccount.Lock()
+	mock.calls.UpdateAccount = append(mock.calls.UpdateAccount, callInfo)
+	mock.lockUpdateAccount.Unlock()
+	if mock.UpdateAccountFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.UpdateDeployFunc(ctx, d)
+	return mock.UpdateAccountFunc(ctx, a)
 }
 
-// UpdateDeployCalls gets all the calls that were made to UpdateDeploy.
+// UpdateAccountCalls gets all the calls that were made to UpdateAccount.
 // Check the length with:
 //
-//	len(mockedStore.UpdateDeployCalls())
-func (mock *StoreMock) UpdateDeployCalls() []struct {
+//	len(mockedStore.UpdateAccountCalls())
+func (mock *StoreMock) UpdateAccountCalls() []struct {
 	Ctx context.Context
-	D   *domain.Deploy
+	A   *domain.Account
 } {
 	var calls []struct {
 		Ctx context.Context
-		D   *domain.Deploy
+		A   *domain.Account
 	}
-	mock.lockUpdateDeploy.RLock()
-	calls = mock.calls.UpdateDeploy
-	mock.lockUpdateDeploy.RUnlock()
+	mock.lockUpdateAccount.RLock()
+	calls = mock.calls.UpdateAccount
+	mock.lockUpdateAccount.RUnlock()
 	return calls
 }
 
-// UpdateInstance calls UpdateInstanceFunc.
-func (mock *StoreMock) UpdateInstance(ctx context.Context, i *domain.Instance) error {
+// UpdateEnvironment calls UpdateEnvironmentFunc.
+func (mock *StoreMock) UpdateEnvironment(ctx context.Context, e *domain.Environment) error {
 	callInfo := struct {
 		Ctx context.Context
-		I   *domain.Instance
+		E   *domain.Environment
 	}{
 		Ctx: ctx,
-		I:   i,
+		E:   e,
 	}
-	mock.lockUpdateInstance.Lock()
-	mock.calls.UpdateInstance = append(mock.calls.UpdateInstance, callInfo)
-	mock.lockUpdateInstance.Unlock()
-	if mock.UpdateInstanceFunc == nil {
+	mock.lockUpdateEnvironment.Lock()
+	mock.calls.UpdateEnvironment = append(mock.calls.UpdateEnvironment, callInfo)
+	mock.lockUpdateEnvironment.Unlock()
+	if mock.UpdateEnvironmentFunc == nil {
 		var (
 			errOut error
 		)
 		return errOut
 	}
-	return mock.UpdateInstanceFunc(ctx, i)
+	return mock.UpdateEnvironmentFunc(ctx, e)
 }
 
-// UpdateInstanceCalls gets all the calls that were made to UpdateInstance.
+// UpdateEnvironmentCalls gets all the calls that were made to UpdateEnvironment.
 // Check the length with:
 //
-//	len(mockedStore.UpdateInstanceCalls())
-func (mock *StoreMock) UpdateInstanceCalls() []struct {
+//	len(mockedStore.UpdateEnvironmentCalls())
+func (mock *StoreMock) UpdateEnvironmentCalls() []struct {
 	Ctx context.Context
-	I   *domain.Instance
+	E   *domain.Environment
 } {
 	var calls []struct {
 		Ctx context.Context
-		I   *domain.Instance
+		E   *domain.Environment
 	}
-	mock.lockUpdateInstance.RLock()
-	calls = mock.calls.UpdateInstance
-	mock.lockUpdateInstance.RUnlock()
+	mock.lockUpdateEnvironment.RLock()
+	calls = mock.calls.UpdateEnvironment
+	mock.lockUpdateEnvironment.RUnlock()
+	return calls
+}
+
+// UpdateRun calls UpdateRunFunc.
+func (mock *StoreMock) UpdateRun(ctx context.Context, r *domain.Run) error {
+	callInfo := struct {
+		Ctx context.Context
+		R   *domain.Run
+	}{
+		Ctx: ctx,
+		R:   r,
+	}
+	mock.lockUpdateRun.Lock()
+	mock.calls.UpdateRun = append(mock.calls.UpdateRun, callInfo)
+	mock.lockUpdateRun.Unlock()
+	if mock.UpdateRunFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.UpdateRunFunc(ctx, r)
+}
+
+// UpdateRunCalls gets all the calls that were made to UpdateRun.
+// Check the length with:
+//
+//	len(mockedStore.UpdateRunCalls())
+func (mock *StoreMock) UpdateRunCalls() []struct {
+	Ctx context.Context
+	R   *domain.Run
+} {
+	var calls []struct {
+		Ctx context.Context
+		R   *domain.Run
+	}
+	mock.lockUpdateRun.RLock()
+	calls = mock.calls.UpdateRun
+	mock.lockUpdateRun.RUnlock()
 	return calls
 }
 
@@ -2134,78 +1881,78 @@ func (mock *StoreMock) UpsertUserCalls() []struct {
 	return calls
 }
 
-// Ensure, that BuilderMock does implement domain.Builder.
+// Ensure, that InstallerMock does implement domain.Installer.
 // If this is not the case, regenerate this file with moq.
-var _ domain.Builder = &BuilderMock{}
+var _ domain.Installer = &InstallerMock{}
 
-// BuilderMock is a mock implementation of domain.Builder.
+// InstallerMock is a mock implementation of domain.Installer.
 //
-//	func TestSomethingThatUsesBuilder(t *testing.T) {
+//	func TestSomethingThatUsesInstaller(t *testing.T) {
 //
-//		// make and configure a mocked domain.Builder
-//		mockedBuilder := &BuilderMock{
-//			BuildFunc: func(ctx context.Context, req domain.BuildRequest) (*domain.BuildResult, error) {
-//				panic("mock out the Build method")
+//		// make and configure a mocked domain.Installer
+//		mockedInstaller := &InstallerMock{
+//			InstallFunc: func(ctx context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
+//				panic("mock out the Install method")
 //			},
 //		}
 //
-//		// use mockedBuilder in code that requires domain.Builder
+//		// use mockedInstaller in code that requires domain.Installer
 //		// and then make assertions.
 //
 //	}
-type BuilderMock struct {
-	// BuildFunc mocks the Build method.
-	BuildFunc func(ctx context.Context, req domain.BuildRequest) (*domain.BuildResult, error)
+type InstallerMock struct {
+	// InstallFunc mocks the Install method.
+	InstallFunc func(ctx context.Context, req domain.InstallRequest) (*domain.InstallResult, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// Build holds details about calls to the Build method.
-		Build []struct {
+		// Install holds details about calls to the Install method.
+		Install []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Req is the req argument value.
-			Req domain.BuildRequest
+			Req domain.InstallRequest
 		}
 	}
-	lockBuild sync.RWMutex
+	lockInstall sync.RWMutex
 }
 
-// Build calls BuildFunc.
-func (mock *BuilderMock) Build(ctx context.Context, req domain.BuildRequest) (*domain.BuildResult, error) {
+// Install calls InstallFunc.
+func (mock *InstallerMock) Install(ctx context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
 	callInfo := struct {
 		Ctx context.Context
-		Req domain.BuildRequest
+		Req domain.InstallRequest
 	}{
 		Ctx: ctx,
 		Req: req,
 	}
-	mock.lockBuild.Lock()
-	mock.calls.Build = append(mock.calls.Build, callInfo)
-	mock.lockBuild.Unlock()
-	if mock.BuildFunc == nil {
+	mock.lockInstall.Lock()
+	mock.calls.Install = append(mock.calls.Install, callInfo)
+	mock.lockInstall.Unlock()
+	if mock.InstallFunc == nil {
 		var (
-			buildResultOut *domain.BuildResult
-			errOut         error
+			installResultOut *domain.InstallResult
+			errOut           error
 		)
-		return buildResultOut, errOut
+		return installResultOut, errOut
 	}
-	return mock.BuildFunc(ctx, req)
+	return mock.InstallFunc(ctx, req)
 }
 
-// BuildCalls gets all the calls that were made to Build.
+// InstallCalls gets all the calls that were made to Install.
 // Check the length with:
 //
-//	len(mockedBuilder.BuildCalls())
-func (mock *BuilderMock) BuildCalls() []struct {
+//	len(mockedInstaller.InstallCalls())
+func (mock *InstallerMock) InstallCalls() []struct {
 	Ctx context.Context
-	Req domain.BuildRequest
+	Req domain.InstallRequest
 } {
 	var calls []struct {
 		Ctx context.Context
-		Req domain.BuildRequest
+		Req domain.InstallRequest
 	}
-	mock.lockBuild.RLock()
-	calls = mock.calls.Build
-	mock.lockBuild.RUnlock()
+	mock.lockInstall.RLock()
+	calls = mock.calls.Install
+	mock.lockInstall.RUnlock()
 	return calls
 }

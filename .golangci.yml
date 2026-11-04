@@ -52,6 +52,8 @@ linters:
       excludes:
         - G104 # duplicates errcheck
         - G124 # cookies set HttpOnly+SameSite; Secure follows the configured base URL scheme
+        - G304 # catalog and config paths are operator-controlled by design
+        - G703 # paths are joined from catalog directories and account IDs the server generated
     revive:
       rules:
         - name: exported

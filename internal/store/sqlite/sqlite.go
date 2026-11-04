@@ -1,5 +1,6 @@
-// Package sqlite persists Rocketsled state in a single SQLite file. SCM tokens are
-// encrypted at rest with a key derived from the server's session secret.
+// Package sqlite persists Rocketsled state in a single SQLite file. Each account's
+// Massdriver credential is encrypted at rest with a key derived from the server's
+// session secret; its bootstrap state is stored alongside it.
 package sqlite
 
 import (
@@ -34,7 +35,7 @@ type Store struct {
 
 var _ domain.Store = (*Store)(nil)
 
-// Open creates or migrates the database at path. secret encrypts stored tokens.
+// Open creates or migrates the database at path. secret encrypts stored credentials.
 func Open(path, secret string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
 	if path == ":memory:" {
@@ -98,7 +99,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			_ = tx.Rollback()
 			return fmt.Errorf("migration %s: %w", name, err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, name, now()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, name, fmtTime(time.Now())); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -108,8 +109,6 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	return nil
 }
-
-func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 func fmtTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
@@ -127,6 +126,26 @@ func notFound(err error, what string) error {
 
 func isUnique(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+func (s *Store) seal(plaintext, aad string) ([]byte, error) {
+	nonce := make([]byte, s.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return s.aead.Seal(nonce, nonce, []byte(plaintext), []byte(aad)), nil
+}
+
+func (s *Store) open(sealed []byte, aad string) (string, error) {
+	n := s.aead.NonceSize()
+	if len(sealed) < n {
+		return "", errors.New("credential is corrupt")
+	}
+	plain, err := s.aead.Open(nil, sealed[:n], sealed[n:], []byte(aad))
+	if err != nil {
+		return "", fmt.Errorf("decrypt credential: %w", err)
+	}
+	return string(plain), nil
 }
 
 // --- users -------------------------------------------------------------------
@@ -161,140 +180,44 @@ func (s *Store) GetUser(ctx context.Context, id string) (*domain.User, error) {
 	return &u, nil
 }
 
-func (s *Store) SaveCredential(ctx context.Context, userID, token string) error {
-	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return err
-	}
-	sealed := s.aead.Seal(nonce, nonce, []byte(token), []byte(userID))
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO credentials (user_id, token_enc, updated_at) VALUES (?, ?, ?)
-		ON CONFLICT(user_id) DO UPDATE SET token_enc = excluded.token_enc, updated_at = excluded.updated_at`,
-		userID, sealed, now())
-	return err
-}
+// --- accounts ----------------------------------------------------------------
 
-func (s *Store) GetCredential(ctx context.Context, userID string) (string, error) {
-	var sealed []byte
-	if err := s.db.QueryRowContext(ctx, `SELECT token_enc FROM credentials WHERE user_id = ?`, userID).Scan(&sealed); err != nil {
-		return "", notFound(err, "credential for "+userID)
-	}
-	n := s.aead.NonceSize()
-	if len(sealed) < n {
-		return "", errors.New("credential is corrupt")
-	}
-	plain, err := s.aead.Open(nil, sealed[:n], sealed[n:], []byte(userID))
-	if err != nil {
-		return "", fmt.Errorf("decrypt credential: %w", err)
-	}
-	return string(plain), nil
-}
+const accountColumns = `id, name, owner_user_id, organization_id, organization_name, status, catalog_id, project_id,
+	base_environment_id, platforms, install_log, install_error, created_at, updated_at`
 
-// --- stacks ------------------------------------------------------------------
-
-const stackColumns = `id, name, repo_provider, repo_external_id, repo_full_name, repo_url, repo_default_branch, repo_private,
-	path, project_id, webhook_id, deploy_token_hash, created_by, created_at`
-
-func scanStack(row interface{ Scan(...any) error }) (*domain.Stack, error) {
-	var st domain.Stack
-	var created string
-	var private int
-	err := row.Scan(&st.ID, &st.Name, &st.Repo.Provider, &st.Repo.ExternalID, &st.Repo.FullName, &st.Repo.URL,
-		&st.Repo.DefaultBranch, &private, &st.Path, &st.ProjectID, &st.WebhookID, &st.DeployTokenHash, &st.CreatedBy, &created)
+func scanAccount(row interface{ Scan(...any) error }) (*domain.Account, error) {
+	var a domain.Account
+	var platforms, created, updated string
+	err := row.Scan(&a.ID, &a.Name, &a.OwnerUserID, &a.OrganizationID, &a.OrganizationName, &a.Status, &a.CatalogID, &a.ProjectID,
+		&a.BaseEnvironmentID, &platforms, &a.InstallLog, &a.InstallError, &created, &updated)
 	if err != nil {
 		return nil, err
 	}
-	st.Repo.Private = private == 1
-	st.CreatedAt = parseTime(created)
-	return &st, nil
+	a.Platforms = map[string]string{}
+	if err := json.Unmarshal([]byte(platforms), &a.Platforms); err != nil {
+		return nil, fmt.Errorf("decode platforms: %w", err)
+	}
+	a.CreatedAt = parseTime(created)
+	a.UpdatedAt = parseTime(updated)
+	return &a, nil
 }
 
-func (s *Store) CreateStack(ctx context.Context, st *domain.Stack) error {
-	private := 0
-	if st.Repo.Private {
-		private = 1
+func (s *Store) CreateAccount(ctx context.Context, a *domain.Account, credential domain.Credential) error {
+	platforms, err := json.Marshal(orEmpty(a.Platforms))
+	if err != nil {
+		return err
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO stacks (`+stackColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		st.ID, st.Name, st.Repo.Provider, st.Repo.ExternalID, st.Repo.FullName, st.Repo.URL, st.Repo.DefaultBranch, private,
-		st.Path, st.ProjectID, st.WebhookID, st.DeployTokenHash, st.CreatedBy, fmtTime(st.CreatedAt))
+	sealed, err := s.seal(credential.APIKey, a.ID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO accounts (`+accountColumns+`, credential_url, credential_enc)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.Name, a.OwnerUserID, a.OrganizationID, a.OrganizationName, a.Status, a.CatalogID, a.ProjectID,
+		a.BaseEnvironmentID, string(platforms), a.InstallLog, a.InstallError, fmtTime(a.CreatedAt), fmtTime(a.UpdatedAt),
+		credential.URL, sealed)
 	if isUnique(err) {
-		return fmt.Errorf("%w: stack %s", domain.ErrConflict, st.ID)
-	}
-	return err
-}
-
-func (s *Store) GetStack(ctx context.Context, id string) (*domain.Stack, error) {
-	st, err := scanStack(s.db.QueryRowContext(ctx, `SELECT `+stackColumns+` FROM stacks WHERE id = ?`, id))
-	if err != nil {
-		return nil, notFound(err, "stack "+id)
-	}
-	return st, nil
-}
-
-func (s *Store) ListStacks(ctx context.Context) ([]domain.Stack, error) {
-	return s.queryStacks(ctx, `SELECT `+stackColumns+` FROM stacks ORDER BY created_at`)
-}
-
-func (s *Store) FindStacksByRepo(ctx context.Context, provider domain.Provider, fullName string) ([]domain.Stack, error) {
-	return s.queryStacks(ctx, `SELECT `+stackColumns+` FROM stacks WHERE repo_provider = ? AND repo_full_name = ? ORDER BY created_at`, provider, fullName)
-}
-
-func (s *Store) queryStacks(ctx context.Context, query string, args ...any) ([]domain.Stack, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []domain.Stack{}
-	for rows.Next() {
-		st, err := scanStack(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *st)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) DeleteStack(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM stacks WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("%w: stack %s", domain.ErrNotFound, id)
-	}
-	return nil
-}
-
-// --- instances ---------------------------------------------------------------
-
-const instanceColumns = `id, stack_id, slug, name, branch, environment_id, presets, state, created_by, created_at, updated_at`
-
-func scanInstance(row interface{ Scan(...any) error }) (*domain.Instance, error) {
-	var i domain.Instance
-	var presets, created, updated string
-	if err := row.Scan(&i.ID, &i.StackID, &i.Slug, &i.Name, &i.Branch, &i.EnvironmentID, &presets, &i.State, &i.CreatedBy, &created, &updated); err != nil {
-		return nil, err
-	}
-	i.Presets = map[string]string{}
-	if err := json.Unmarshal([]byte(presets), &i.Presets); err != nil {
-		return nil, fmt.Errorf("decode presets: %w", err)
-	}
-	i.CreatedAt = parseTime(created)
-	i.UpdatedAt = parseTime(updated)
-	return &i, nil
-}
-
-func (s *Store) CreateInstance(ctx context.Context, i *domain.Instance) error {
-	presets, err := json.Marshal(orEmpty(i.Presets))
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO instances (`+instanceColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		i.ID, i.StackID, i.Slug, i.Name, i.Branch, i.EnvironmentID, string(presets), i.State, i.CreatedBy, fmtTime(i.CreatedAt), fmtTime(i.UpdatedAt))
-	if isUnique(err) {
-		return fmt.Errorf("%w: instance %s", domain.ErrConflict, i.Slug)
+		return fmt.Errorf("%w: user already has an account", domain.ErrConflict)
 	}
 	return err
 }
@@ -306,120 +229,200 @@ func orEmpty(m map[string]string) map[string]string {
 	return m
 }
 
-func (s *Store) GetInstance(ctx context.Context, id string) (*domain.Instance, error) {
-	i, err := scanInstance(s.db.QueryRowContext(ctx, `SELECT `+instanceColumns+` FROM instances WHERE id = ?`, id))
+func (s *Store) GetAccount(ctx context.Context, id string) (*domain.Account, error) {
+	a, err := scanAccount(s.db.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE id = ?`, id))
 	if err != nil {
-		return nil, notFound(err, "instance "+id)
+		return nil, notFound(err, "account "+id)
 	}
-	return i, nil
+	return a, nil
 }
 
-func (s *Store) ListInstances(ctx context.Context, stackID string) ([]domain.Instance, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+instanceColumns+` FROM instances WHERE stack_id = ? ORDER BY created_at`, stackID)
+func (s *Store) GetAccountByOwner(ctx context.Context, userID string) (*domain.Account, error) {
+	a, err := scanAccount(s.db.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE owner_user_id = ?`, userID))
+	if err != nil {
+		return nil, notFound(err, "account for "+userID)
+	}
+	return a, nil
+}
+
+func (s *Store) UpdateAccount(ctx context.Context, a *domain.Account) error {
+	platforms, err := json.Marshal(orEmpty(a.Platforms))
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET name = ?, organization_name = ?, status = ?, catalog_id = ?, project_id = ?,
+		base_environment_id = ?, platforms = ?, install_log = ?, install_error = ?, updated_at = ? WHERE id = ?`,
+		a.Name, a.OrganizationName, a.Status, a.CatalogID, a.ProjectID, a.BaseEnvironmentID, string(platforms), a.InstallLog, a.InstallError, fmtTime(a.UpdatedAt), a.ID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: account %s", domain.ErrNotFound, a.ID)
+	}
+	return nil
+}
+
+func (s *Store) GetAccountCredential(ctx context.Context, accountID string) (domain.Credential, error) {
+	var url, orgID string
+	var sealed []byte
+	if err := s.db.QueryRowContext(ctx, `SELECT credential_url, organization_id, credential_enc FROM accounts WHERE id = ?`, accountID).Scan(&url, &orgID, &sealed); err != nil {
+		return domain.Credential{}, notFound(err, "account "+accountID)
+	}
+	key, err := s.open(sealed, accountID)
+	if err != nil {
+		return domain.Credential{}, err
+	}
+	return domain.Credential{URL: url, OrganizationID: orgID, APIKey: key}, nil
+}
+
+func (s *Store) SaveBootstrapState(ctx context.Context, accountID string, state []byte) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE accounts SET bootstrap_state = ? WHERE id = ?`, state, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: account %s", domain.ErrNotFound, accountID)
+	}
+	return nil
+}
+
+func (s *Store) GetBootstrapState(ctx context.Context, accountID string) ([]byte, error) {
+	var state []byte
+	if err := s.db.QueryRowContext(ctx, `SELECT bootstrap_state FROM accounts WHERE id = ?`, accountID).Scan(&state); err != nil {
+		return nil, notFound(err, "account "+accountID)
+	}
+	if state == nil {
+		return nil, fmt.Errorf("%w: no bootstrap state for %s", domain.ErrNotFound, accountID)
+	}
+	return state, nil
+}
+
+// --- environments ------------------------------------------------------------
+
+const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at`
+
+func scanEnvironment(row interface{ Scan(...any) error }) (*domain.Environment, error) {
+	var e domain.Environment
+	var presets, created, updated string
+	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated); err != nil {
+		return nil, err
+	}
+	e.Presets = map[string]string{}
+	if err := json.Unmarshal([]byte(presets), &e.Presets); err != nil {
+		return nil, fmt.Errorf("decode presets: %w", err)
+	}
+	e.CreatedAt = parseTime(created)
+	e.UpdatedAt = parseTime(updated)
+	return &e, nil
+}
+
+func (s *Store) CreateEnvironment(ctx context.Context, e *domain.Environment) error {
+	presets, err := json.Marshal(orEmpty(e.Presets))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt))
+	if isUnique(err) {
+		return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
+	}
+	return err
+}
+
+func (s *Store) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
+	e, err := scanEnvironment(s.db.QueryRowContext(ctx, `SELECT `+environmentColumns+` FROM environments WHERE id = ?`, id))
+	if err != nil {
+		return nil, notFound(err, "environment "+id)
+	}
+	return e, nil
+}
+
+func (s *Store) ListEnvironments(ctx context.Context, accountID string) ([]domain.Environment, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+environmentColumns+` FROM environments WHERE account_id = ? ORDER BY created_at`, accountID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []domain.Instance{}
+	out := []domain.Environment{}
 	for rows.Next() {
-		i, err := scanInstance(rows)
+		e, err := scanEnvironment(rows)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, *i)
+		out = append(out, *e)
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) UpdateInstance(ctx context.Context, i *domain.Instance) error {
-	presets, err := json.Marshal(orEmpty(i.Presets))
+func (s *Store) UpdateEnvironment(ctx context.Context, e *domain.Environment) error {
+	presets, err := json.Marshal(orEmpty(e.Presets))
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE instances SET name = ?, branch = ?, environment_id = ?, presets = ?, state = ?, updated_at = ? WHERE id = ?`,
-		i.Name, i.Branch, i.EnvironmentID, string(presets), i.State, fmtTime(i.UpdatedAt), i.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ? WHERE id = ?`,
+		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.ID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("%w: instance %s", domain.ErrNotFound, i.ID)
+		return fmt.Errorf("%w: environment %s", domain.ErrNotFound, e.ID)
 	}
 	return nil
 }
 
-func (s *Store) DeleteInstance(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM instances WHERE id = ?`, id)
+func (s *Store) DeleteEnvironment(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM environments WHERE id = ?`, id)
 	return err
 }
 
-// --- deploys -----------------------------------------------------------------
+// --- runs --------------------------------------------------------------------
 
-const deployColumns = `id, instance_id, number, trigger_kind, ref, sha, image_tag, image, status, message, log, platform_ids, requested_by, created_at, updated_at`
+const runColumns = `id, environment_id, number, trigger_kind, status, message, requested_by, created_at, updated_at`
 
-func scanDeploy(row interface{ Scan(...any) error }) (*domain.Deploy, error) {
-	var d domain.Deploy
-	var ids, created, updated string
-	if err := row.Scan(&d.ID, &d.InstanceID, &d.Number, &d.Trigger, &d.Ref, &d.SHA, &d.ImageTag, &d.Image, &d.Status, &d.Message, &d.Log, &ids, &d.RequestedBy, &created, &updated); err != nil {
+func scanRun(row interface{ Scan(...any) error }) (*domain.Run, error) {
+	var r domain.Run
+	var created, updated string
+	if err := row.Scan(&r.ID, &r.EnvironmentID, &r.Number, &r.Trigger, &r.Status, &r.Message, &r.RequestedBy, &created, &updated); err != nil {
 		return nil, err
 	}
-	d.PlatformDeploymentIDs = []string{}
-	if err := json.Unmarshal([]byte(ids), &d.PlatformDeploymentIDs); err != nil {
-		return nil, fmt.Errorf("decode platform ids: %w", err)
-	}
-	d.CreatedAt = parseTime(created)
-	d.UpdatedAt = parseTime(updated)
-	return &d, nil
+	r.CreatedAt = parseTime(created)
+	r.UpdatedAt = parseTime(updated)
+	return &r, nil
 }
 
-func (s *Store) CreateDeploy(ctx context.Context, d *domain.Deploy) error {
-	ids, err := json.Marshal(orEmptySlice(d.PlatformDeploymentIDs))
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO deploys (`+deployColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.ID, d.InstanceID, d.Number, d.Trigger, d.Ref, d.SHA, d.ImageTag, d.Image, d.Status, d.Message, d.Log, string(ids), d.RequestedBy, fmtTime(d.CreatedAt), fmtTime(d.UpdatedAt))
+func (s *Store) CreateRun(ctx context.Context, r *domain.Run) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO runs (`+runColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.EnvironmentID, r.Number, r.Trigger, r.Status, r.Message, r.RequestedBy, fmtTime(r.CreatedAt), fmtTime(r.UpdatedAt))
 	return err
 }
 
-func orEmptySlice(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
-}
-
-func (s *Store) UpdateDeploy(ctx context.Context, d *domain.Deploy) error {
-	ids, err := json.Marshal(orEmptySlice(d.PlatformDeploymentIDs))
-	if err != nil {
-		return err
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE deploys SET status = ?, message = ?, image = ?, log = ?, platform_ids = ?, updated_at = ? WHERE id = ?`,
-		d.Status, d.Message, d.Image, d.Log, string(ids), fmtTime(d.UpdatedAt), d.ID)
+func (s *Store) UpdateRun(ctx context.Context, r *domain.Run) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE runs SET status = ?, message = ?, updated_at = ? WHERE id = ?`, r.Status, r.Message, fmtTime(r.UpdatedAt), r.ID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("%w: deploy %s", domain.ErrNotFound, d.ID)
+		return fmt.Errorf("%w: run %s", domain.ErrNotFound, r.ID)
 	}
 	return nil
 }
 
-func (s *Store) ListDeploys(ctx context.Context, instanceID string, limit int) ([]domain.Deploy, error) {
+func (s *Store) ListRuns(ctx context.Context, environmentID string, limit int) ([]domain.Run, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+deployColumns+` FROM deploys WHERE instance_id = ? ORDER BY number DESC LIMIT ?`, instanceID, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+runColumns+` FROM runs WHERE environment_id = ? ORDER BY number DESC LIMIT ?`, environmentID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []domain.Deploy{}
+	out := []domain.Run{}
 	for rows.Next() {
-		d, err := scanDeploy(rows)
+		r, err := scanRun(rows)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, *d)
+		out = append(out, *r)
 	}
 	return out, rows.Err()
 }

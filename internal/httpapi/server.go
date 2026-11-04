@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -21,35 +20,32 @@ import (
 
 // Server holds the handlers' dependencies.
 type Server struct {
-	svc           *domain.Service
-	sessions      *auth.Sessions
-	baseURL       string
-	webhookSecret string
-	ui            fs.FS
-	log           *slog.Logger
-	mux           *http.ServeMux
+	svc      *domain.Service
+	sessions *auth.Sessions
+	baseURL  string
+	ui       fs.FS
+	log      *slog.Logger
+	mux      *http.ServeMux
 }
 
 // Options configures a Server.
 type Options struct {
-	Service       *domain.Service
-	Sessions      *auth.Sessions
-	BaseURL       string
-	WebhookSecret string
-	UI            fs.FS
-	Logger        *slog.Logger
+	Service  *domain.Service
+	Sessions *auth.Sessions
+	BaseURL  string
+	UI       fs.FS
+	Logger   *slog.Logger
 }
 
 // New wires every route.
 func New(o Options) *Server {
 	s := &Server{
-		svc:           o.Service,
-		sessions:      o.Sessions,
-		baseURL:       strings.TrimRight(o.BaseURL, "/"),
-		webhookSecret: o.WebhookSecret,
-		ui:            o.UI,
-		log:           o.Logger,
-		mux:           http.NewServeMux(),
+		svc:      o.Service,
+		sessions: o.Sessions,
+		baseURL:  strings.TrimRight(o.BaseURL, "/"),
+		ui:       o.UI,
+		log:      o.Logger,
+		mux:      http.NewServeMux(),
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -66,24 +62,22 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /auth/{provider}/login", s.handleLogin)
 	m.HandleFunc("GET /auth/{provider}/callback", s.handleCallback)
-	m.HandleFunc("POST /hooks/{provider}", s.handleWebhook)
-	m.HandleFunc("POST /ci/v1/stacks/{id}/deploys", s.handleCIDeploy)
 
 	m.HandleFunc("GET /api/v1/meta", s.handleMeta)
-	m.HandleFunc("GET /api/v1/me", s.requireUser(s.handleMe))
 	m.HandleFunc("POST /api/v1/logout", s.handleLogout)
-	m.HandleFunc("GET /api/v1/repos", s.requireUser(s.handleListRepos))
-	m.HandleFunc("GET /api/v1/projects", s.requireUser(s.handleListProjects))
-	m.HandleFunc("GET /api/v1/projects/{id}", s.requireUser(s.handleGetProject))
-	m.HandleFunc("GET /api/v1/stacks", s.requireUser(s.handleListStacks))
-	m.HandleFunc("POST /api/v1/stacks", s.requireUser(s.handleCreateStack))
-	m.HandleFunc("GET /api/v1/stacks/{id}", s.requireUser(s.handleGetStack))
-	m.HandleFunc("DELETE /api/v1/stacks/{id}", s.requireUser(s.handleDeleteStack))
-	m.HandleFunc("GET /api/v1/stacks/{id}/instances", s.requireUser(s.handleListInstances))
-	m.HandleFunc("POST /api/v1/stacks/{id}/instances", s.requireUser(s.handleCreateInstance))
-	m.HandleFunc("GET /api/v1/instances/{id}", s.requireUser(s.handleGetInstance))
-	m.HandleFunc("DELETE /api/v1/instances/{id}", s.requireUser(s.handleDestroyInstance))
-	m.HandleFunc("POST /api/v1/instances/{id}/deploys", s.requireUser(s.handleDeploy))
+	m.HandleFunc("GET /api/v1/me", s.user(s.handleMe))
+	m.HandleFunc("GET /api/v1/catalogs", s.user(s.handleCatalogs))
+	m.HandleFunc("POST /api/v1/account", s.user(s.handleCreateAccount))
+	m.HandleFunc("GET /api/v1/account", s.account(s.handleGetAccount))
+	m.HandleFunc("POST /api/v1/account/install", s.account(s.handleInstall))
+	m.HandleFunc("GET /api/v1/account/platforms", s.account(s.handlePlatforms))
+	m.HandleFunc("POST /api/v1/account/platforms/{type}", s.account(s.handleProvidePlatform))
+	m.HandleFunc("GET /api/v1/project", s.account(s.handleProject))
+	m.HandleFunc("GET /api/v1/environments", s.account(s.handleListEnvironments))
+	m.HandleFunc("POST /api/v1/environments", s.account(s.handleCreateEnvironment))
+	m.HandleFunc("GET /api/v1/environments/{id}", s.account(s.handleGetEnvironment))
+	m.HandleFunc("DELETE /api/v1/environments/{id}", s.account(s.handleDestroyEnvironment))
+	m.HandleFunc("POST /api/v1/environments/{id}/deploys", s.account(s.handleDeployEnvironment))
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint", "")
 	})
@@ -114,28 +108,49 @@ func (w *statusWriter) WriteHeader(code int) {
 
 // --- helpers -----------------------------------------------------------------
 
-type ctxKey struct{}
+type (
+	userKey    struct{}
+	accountKey struct{}
+)
 
 func userFrom(ctx context.Context) *domain.User {
-	u, _ := ctx.Value(ctxKey{}).(*domain.User)
+	u, _ := ctx.Value(userKey{}).(*domain.User)
 	return u
 }
 
-func (s *Server) requireUser(next http.HandlerFunc) http.HandlerFunc {
+func accountFrom(ctx context.Context) *domain.Account {
+	a, _ := ctx.Value(accountKey{}).(*domain.Account)
+	return a
+}
+
+// user requires a signed-in user.
+func (s *Server) user(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := s.sessions.UserFromRequest(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "sign in to continue", "")
 			return
 		}
-		user, err := s.svc.GetUser(r.Context(), id)
+		u, err := s.svc.GetUser(r.Context(), id)
 		if err != nil {
 			s.sessions.ClearSession(w)
 			writeError(w, http.StatusUnauthorized, "sign in to continue", "")
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, user)))
+		next(w, r.WithContext(context.WithValue(r.Context(), userKey{}, u)))
 	}
+}
+
+// account requires a signed-in user who has completed signup.
+func (s *Server) account(next http.HandlerFunc) http.HandlerFunc {
+	return s.user(func(w http.ResponseWriter, r *http.Request) {
+		a, err := s.svc.AccountFor(r.Context(), userFrom(r.Context()))
+		if err != nil {
+			writeError(w, http.StatusPreconditionFailed, "finish signing up first", "")
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), accountKey{}, a)))
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -153,7 +168,6 @@ func writeError(w http.ResponseWriter, status int, msg, field string) {
 	writeJSON(w, status, errorBody{Error: msg, Field: field})
 }
 
-// writeDomainError maps domain errors onto HTTP statuses.
 func (s *Server) writeDomainError(w http.ResponseWriter, err error) {
 	var verr *domain.ValidationError
 	switch {
@@ -183,7 +197,7 @@ func decode(r *http.Request, v any) error {
 // --- auth --------------------------------------------------------------------
 
 func (s *Server) callbackURL(p domain.Provider) string {
-	return fmt.Sprintf("%s/auth/%s/callback", s.baseURL, p)
+	return s.baseURL + "/auth/" + string(p) + "/callback"
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -223,145 +237,96 @@ func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type metaResponse struct {
-	Providers []domain.Provider `json:"providers"`
-	BaseURL   string            `json:"baseUrl"`
+func (s *Server) handleMeta(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"providers": s.svc.Providers(), "baseUrl": s.baseURL})
 }
 
-func (s *Server) handleMeta(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, metaResponse{Providers: s.svc.Providers(), BaseURL: s.baseURL})
+// meResponse is the signed-in user and their account, if signup is complete.
+type meResponse struct {
+	User    *domain.User    `json:"user"`
+	Account *domain.Account `json:"account,omitempty"`
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, userFrom(r.Context()))
+	u := userFrom(r.Context())
+	a, _ := s.svc.AccountFor(r.Context(), u)
+	writeJSON(w, http.StatusOK, meResponse{User: u, Account: a})
 }
 
-// --- repos & projects --------------------------------------------------------
+// --- account -----------------------------------------------------------------
 
-func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
-	repos, err := s.svc.ListRepos(r.Context(), userFrom(r.Context()))
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
-	}
-	if repos == nil {
-		repos = []domain.Repo{}
-	}
-	writeJSON(w, http.StatusOK, repos)
+func (s *Server) handleCatalogs(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.svc.ListCatalogs())
 }
 
-func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.svc.ListProjects(r.Context())
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
+func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
 	}
-	writeJSON(w, http.StatusOK, projects)
-}
-
-func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
-	project, err := s.svc.GetProject(r.Context(), r.PathValue("id"))
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, project)
-}
-
-// --- stacks ------------------------------------------------------------------
-
-type stackResponse struct {
-	Stack     domain.Stack      `json:"stack"`
-	Instances []domain.Instance `json:"instances"`
-	// DeployToken is only present in the create response.
-	DeployToken string `json:"deployToken,omitempty"`
-}
-
-func (s *Server) handleListStacks(w http.ResponseWriter, r *http.Request) {
-	stacks, err := s.svc.ListStacks(r.Context())
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
-	}
-	out := make([]stackResponse, 0, len(stacks))
-	for _, st := range stacks {
-		instances, err := s.svc.ListInstances(r.Context(), st.ID)
-		if err != nil {
+	if r.ContentLength != 0 {
+		if err := decode(r, &in); err != nil {
 			s.writeDomainError(w, err)
 			return
 		}
-		out = append(out, stackResponse{Stack: st, Instances: instances})
 	}
-	writeJSON(w, http.StatusOK, out)
+	a, err := s.svc.CreateAccount(r.Context(), userFrom(r.Context()), in.Name)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
 }
 
-func (s *Server) handleCreateStack(w http.ResponseWriter, r *http.Request) {
-	var in domain.CreateStackInput
+func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, accountFrom(r.Context()))
+}
+
+func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		CatalogID string `json:"catalogId"`
+	}
 	if err := decode(r, &in); err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	stack, token, err := s.svc.CreateStack(r.Context(), userFrom(r.Context()), in)
+	a, err := s.svc.InstallCatalog(r.Context(), accountFrom(r.Context()), in.CatalogID)
 	if err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, stackResponse{Stack: *stack, Instances: []domain.Instance{}, DeployToken: token})
+	writeJSON(w, http.StatusAccepted, a)
 }
 
-func (s *Server) handleGetStack(w http.ResponseWriter, r *http.Request) {
-	stack, err := s.svc.GetStack(r.Context(), r.PathValue("id"))
+func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
+	reqs, err := s.svc.PlatformRequirements(accountFrom(r.Context()))
 	if err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	instances, err := s.svc.ListInstances(r.Context(), stack.ID)
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
+	writeJSON(w, http.StatusOK, reqs)
+}
+
+func (s *Server) handleProvidePlatform(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name    string         `json:"name"`
+		Payload map[string]any `json:"payload"`
 	}
-	writeJSON(w, http.StatusOK, stackResponse{Stack: *stack, Instances: instances})
-}
-
-func (s *Server) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
-	if err := s.svc.DeleteStack(r.Context(), userFrom(r.Context()), r.PathValue("id")); err != nil {
-		s.writeDomainError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// --- instances ---------------------------------------------------------------
-
-func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
-	instances, err := s.svc.ListInstances(r.Context(), r.PathValue("id"))
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, instances)
-}
-
-type launchResponse struct {
-	Instance *domain.Instance `json:"instance"`
-}
-
-func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
-	var in domain.CreateInstanceInput
 	if err := decode(r, &in); err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	inst, err := s.svc.CreateInstance(r.Context(), userFrom(r.Context()), r.PathValue("id"), in)
+	a, err := s.svc.ProvidePlatform(r.Context(), accountFrom(r.Context()), r.PathValue("type"), in.Name, in.Payload)
 	if err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, launchResponse{Instance: inst})
+	writeJSON(w, http.StatusOK, a)
 }
 
-func (s *Server) handleGetInstance(w http.ResponseWriter, r *http.Request) {
-	view, err := s.svc.InstanceStatus(r.Context(), r.PathValue("id"))
+// --- project & environments --------------------------------------------------
+
+func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
+	view, err := s.svc.Project(r.Context(), accountFrom(r.Context()))
 	if err != nil {
 		s.writeDomainError(w, err)
 		return
@@ -369,92 +334,54 @@ func (s *Server) handleGetInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-func (s *Server) handleDestroyInstance(w http.ResponseWriter, r *http.Request) {
-	inst, err := s.svc.DestroyInstance(r.Context(), r.PathValue("id"))
+func (s *Server) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
+	envs, err := s.svc.ListEnvironments(r.Context(), accountFrom(r.Context()))
 	if err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, inst)
+	writeJSON(w, http.StatusOK, envs)
 }
 
-func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
-	var in domain.DeployInput
-	if r.ContentLength != 0 {
-		if err := decode(r, &in); err != nil {
-			s.writeDomainError(w, err)
-			return
-		}
-	}
-	in.Trigger = domain.TriggerManual
-	in.Actor = userFrom(r.Context())
-	d, err := s.svc.Deploy(r.Context(), r.PathValue("id"), in)
-	if err != nil {
-		s.writeDomainError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, d)
-}
-
-// --- automation --------------------------------------------------------------
-
-func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	provider := domain.Provider(r.PathValue("provider"))
-	scm, err := s.svc.SCM(provider)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "unknown provider", "")
-		return
-	}
-	ev, err := scm.ParsePush(r, s.webhookSecret)
-	if err != nil {
-		if errors.Is(err, domain.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "webhook signature rejected", "")
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error(), "")
-		return
-	}
-	if ev == nil {
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "ignored"})
-		return
-	}
-	deploys, err := s.svc.HandlePush(r.Context(), *ev)
-	if err != nil {
-		s.log.Warn("push handling had errors", "repo", ev.RepoFullName, "branch", ev.Branch, "err", err)
-	}
-	if deploys == nil {
-		deploys = []domain.Deploy{}
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"deploys": deploys, "errors": errString(err)})
-}
-
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
-func (s *Server) handleCIDeploy(w http.ResponseWriter, r *http.Request) {
-	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || token == "" {
-		writeError(w, http.StatusUnauthorized, "send the stack deploy token as a Bearer token", "")
-		return
-	}
-	var in domain.DeployInput
+func (s *Server) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
+	var in domain.CreateEnvironmentInput
 	if err := decode(r, &in); err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	deploys, err := s.svc.DeployFromCI(r.Context(), r.PathValue("id"), token, in)
-	if err != nil && len(deploys) == 0 {
+	env, err := s.svc.CreateEnvironment(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), in)
+	if err != nil {
 		s.writeDomainError(w, err)
 		return
 	}
-	if deploys == nil {
-		deploys = []domain.Deploy{}
+	writeJSON(w, http.StatusAccepted, env)
+}
+
+func (s *Server) handleGetEnvironment(w http.ResponseWriter, r *http.Request) {
+	view, err := s.svc.EnvironmentStatus(r.Context(), accountFrom(r.Context()), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"deploys": deploys, "errors": errString(err)})
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) handleDestroyEnvironment(w http.ResponseWriter, r *http.Request) {
+	env, err := s.svc.DestroyEnvironment(r.Context(), accountFrom(r.Context()), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, env)
+}
+
+func (s *Server) handleDeployEnvironment(w http.ResponseWriter, r *http.Request) {
+	run, err := s.svc.DeployEnvironment(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
 }
 
 // --- UI ----------------------------------------------------------------------

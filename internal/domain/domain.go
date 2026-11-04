@@ -1,6 +1,6 @@
-// Package domain holds Rocketsled's core model: stacks (a repository linked to a
-// Massdriver project), stack instances (a forked Massdriver environment tracking a
-// branch) and deploys. It depends on nothing but the ports declared in ports.go.
+// Package domain holds Rocketsled's model: an account is a customer with their own
+// Massdriver organization; a catalog is a PaaS they install into it; environments
+// are deployed copies of the catalog's project configured from bundle presets.
 package domain
 
 import (
@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Provider identifies a source-control host.
+// Provider identifies a sign-in provider.
 type Provider string
 
 const (
@@ -20,7 +20,7 @@ const (
 	ProviderDev Provider = "dev"
 )
 
-// User is someone who signed in through an SCM provider.
+// User is someone who signed in.
 type User struct {
 	ID             string    `json:"id"`
 	Provider       Provider  `json:"provider"`
@@ -32,110 +32,142 @@ type User struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
-// Repo is a source repository as seen through its provider.
-type Repo struct {
-	Provider      Provider `json:"provider"`
-	ExternalID    string   `json:"externalId"`
-	FullName      string   `json:"fullName"`
-	URL           string   `json:"url"`
-	DefaultBranch string   `json:"defaultBranch"`
-	Private       bool     `json:"private"`
-}
-
-// Stack links a repository to a Massdriver project. Every instance of the stack is
-// an environment forked inside that project.
-type Stack struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Repo Repo   `json:"repo"`
-	// Path is the directory inside the repository holding the app's Dockerfile.
-	Path      string    `json:"path"`
-	ProjectID string    `json:"projectId"`
-	WebhookID string    `json:"-"`
-	CreatedBy string    `json:"createdBy"`
-	CreatedAt time.Time `json:"createdAt"`
-	// DeployTokenHash authenticates CI callbacks; the plaintext is shown once at creation.
-	DeployTokenHash string `json:"-"`
-}
-
-// InstanceState is Rocketsled's coarse view of an instance's lifecycle. Live
-// per-package status always comes from Massdriver.
-type InstanceState string
+// AccountStatus is where a customer is in onboarding.
+type AccountStatus string
 
 const (
-	InstanceStateLaunching       InstanceState = "launching"
-	InstanceStateRunning         InstanceState = "running"
-	InstanceStateDecommissioning InstanceState = "decommissioning"
-	InstanceStateFailed          InstanceState = "failed"
+	// AccountStatusNew has an organization but no catalog yet.
+	AccountStatusNew AccountStatus = "new"
+	// AccountStatusInstalling is publishing the catalog and bootstrapping the project.
+	AccountStatusInstalling AccountStatus = "installing"
+	// AccountStatusNeedsCredentials has a project but is missing a cloud credential.
+	AccountStatusNeedsCredentials AccountStatus = "needs_credentials" //nolint:gosec // a status name, not a secret
+	// AccountStatusReady can create environments.
+	AccountStatusReady AccountStatus = "ready"
+	// AccountStatusFailed could not install its catalog; the log says why.
+	AccountStatusFailed AccountStatus = "failed"
 )
 
-// Instance is one running copy of a stack: a Massdriver environment forked from the
-// project's base environment, configured from presets, following a git branch.
-type Instance struct {
+// Account is a Rocketsled customer: one person, one Massdriver organization.
+type Account struct {
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	OwnerUserID      string        `json:"ownerUserId"`
+	OrganizationID   string        `json:"organizationId"`
+	OrganizationName string        `json:"organizationName"`
+	Status           AccountStatus `json:"status"`
+	CatalogID        string        `json:"catalogId,omitempty"`
+	// ProjectID and BaseEnvironmentID come from the catalog bootstrap outputs.
+	ProjectID         string `json:"projectId,omitempty"`
+	BaseEnvironmentID string `json:"baseEnvironmentId,omitempty"`
+	// Platforms maps a platform resource type to the resource the customer provided.
+	Platforms    map[string]string `json:"platforms"`
+	InstallLog   string            `json:"installLog,omitempty"`
+	InstallError string            `json:"installError,omitempty"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	UpdatedAt    time.Time         `json:"updatedAt"`
+}
+
+// Credential authenticates Rocketsled to one Massdriver organization.
+type Credential struct {
+	URL            string
+	OrganizationID string
+	APIKey         string
+}
+
+// Catalog is a PaaS a customer can install: credential types to collect, things to
+// publish, and a bootstrap that lays out the first project.
+type Catalog struct {
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Cloud         string         `json:"cloud"`
+	Tagline       string         `json:"tagline"`
+	Description   string         `json:"description"`
+	Platforms     []PlatformType `json:"platforms"`
+	ResourceTypes []string       `json:"resourceTypes"`
+	Bundles       []string       `json:"bundles"`
+	Bootstrap     Bootstrap      `json:"bootstrap"`
+	// Dir is the catalog's directory on disk.
+	Dir string `json:"-"`
+}
+
+// Bootstrap describes what the catalog's bootstrap creates.
+type Bootstrap struct {
+	Project         string `json:"project"`
+	BaseEnvironment string `json:"baseEnvironment"`
+	AppComponent    string `json:"appComponent,omitempty"`
+	ImageParam      string `json:"imageParam,omitempty"`
+}
+
+// PlatformType is a credential resource type the customer fills in by hand.
+type PlatformType struct {
+	ID           string         `json:"id"`
+	Label        string         `json:"label"`
+	Description  string         `json:"description"`
+	Schema       map[string]any `json:"schema"`
+	UIOrder      []string       `json:"uiOrder,omitempty"`
+	Instructions []Instruction  `json:"instructions"`
+}
+
+// Instruction is a how-to for obtaining a credential.
+type Instruction struct {
+	Label    string `json:"label"`
+	Markdown string `json:"markdown"`
+}
+
+// EnvironmentState is Rocketsled's coarse view of an environment's lifecycle.
+type EnvironmentState string
+
+const (
+	EnvironmentStateDeploying       EnvironmentState = "deploying"
+	EnvironmentStateRunning         EnvironmentState = "running"
+	EnvironmentStateFailed          EnvironmentState = "failed"
+	EnvironmentStateDecommissioning EnvironmentState = "decommissioning"
+)
+
+// Environment is a copy of the catalog's project the customer created.
+type Environment struct {
 	ID            string            `json:"id"`
-	StackID       string            `json:"stackId"`
+	AccountID     string            `json:"accountId"`
 	Slug          string            `json:"slug"`
 	Name          string            `json:"name"`
-	Branch        string            `json:"branch"`
 	EnvironmentID string            `json:"environmentId"`
 	Presets       map[string]string `json:"presets"`
-	State         InstanceState     `json:"state"`
+	State         EnvironmentState  `json:"state"`
 	CreatedBy     string            `json:"createdBy"`
 	CreatedAt     time.Time         `json:"createdAt"`
 	UpdatedAt     time.Time         `json:"updatedAt"`
 }
 
-// DeployTrigger records what caused a deploy.
-type DeployTrigger string
+// RunTrigger records what caused a run.
+type RunTrigger string
 
 const (
-	TriggerLaunch  DeployTrigger = "launch"
-	TriggerManual  DeployTrigger = "manual"
-	TriggerWebhook DeployTrigger = "webhook"
-	TriggerCI      DeployTrigger = "ci"
+	TriggerCreate RunTrigger = "create"
+	TriggerDeploy RunTrigger = "deploy"
 )
 
-// DeployStatus is Rocketsled's record of a deploy request. Massdriver owns the
-// authoritative per-package status.
-type DeployStatus string
+// RunStatus is Rocketsled's record of a deploy request.
+type RunStatus string
 
 const (
-	DeployStatusQueued    DeployStatus = "queued"
-	DeployStatusBuilding  DeployStatus = "building"
-	DeployStatusRunning   DeployStatus = "running"
-	DeployStatusSucceeded DeployStatus = "succeeded"
-	DeployStatusFailed    DeployStatus = "failed"
+	RunStatusQueued    RunStatus = "queued"
+	RunStatusRunning   RunStatus = "running"
+	RunStatusSucceeded RunStatus = "succeeded"
+	RunStatusFailed    RunStatus = "failed"
 )
 
-// Deploy is a numbered run of an instance.
-type Deploy struct {
-	ID         string        `json:"id"`
-	InstanceID string        `json:"instanceId"`
-	Number     int           `json:"number"`
-	Trigger    DeployTrigger `json:"trigger"`
-	Ref        string        `json:"ref"`
-	SHA        string        `json:"sha"`
-	ImageTag   string        `json:"imageTag"`
-	// Image is the full image reference that was built, when Rocketsled built one.
-	Image   string       `json:"image,omitempty"`
-	Status  DeployStatus `json:"status"`
-	Message string       `json:"message,omitempty"`
-	// Log holds build output, capped by the service.
-	Log string `json:"log,omitempty"`
-	// PlatformDeploymentIDs are the Massdriver deployment IDs this run fanned out to.
-	PlatformDeploymentIDs []string  `json:"platformDeploymentIds"`
-	RequestedBy           string    `json:"requestedBy,omitempty"`
-	CreatedAt             time.Time `json:"createdAt"`
-	UpdatedAt             time.Time `json:"updatedAt"`
-}
-
-// PushEvent is a normalized SCM push webhook.
-type PushEvent struct {
-	Provider     Provider
-	RepoFullName string
-	Branch       string
-	SHA          string
-	Deleted      bool
+// Run is a numbered deploy of an environment.
+type Run struct {
+	ID            string     `json:"id"`
+	EnvironmentID string     `json:"environmentId"`
+	Number        int        `json:"number"`
+	Trigger       RunTrigger `json:"trigger"`
+	Status        RunStatus  `json:"status"`
+	Message       string     `json:"message,omitempty"`
+	RequestedBy   string     `json:"requestedBy,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 // Sentinel errors. Handlers map these to HTTP statuses.
@@ -161,7 +193,7 @@ func Invalid(field, format string, args ...any) error {
 }
 
 // Massdriver environment local identifiers are lowercase alphanumeric, 1-20 chars.
-var instanceSlugPattern = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
+var slugPattern = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
 
-// ValidInstanceSlug reports whether s can be used as a Massdriver environment ID segment.
-func ValidInstanceSlug(s string) bool { return instanceSlugPattern.MatchString(s) }
+// ValidSlug reports whether s can be used as a Massdriver environment ID segment.
+func ValidSlug(s string) bool { return slugPattern.MatchString(s) }
