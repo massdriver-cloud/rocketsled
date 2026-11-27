@@ -242,6 +242,9 @@ func (s *Service) environmentByRef(ctx context.Context, account *Account, ref st
 	if env, err := s.bySlug(ctx, account, ref); env != nil || err != nil {
 		return env, err
 	}
+	if env, err := s.store.GetEnvironment(ctx, ref); err == nil && env.AccountID == account.ID {
+		return env, nil
+	}
 	if s.tenant() {
 		// The store may have lost an app Massdriver still has.
 		if err := s.syncTenant(ctx, account); err == nil {
