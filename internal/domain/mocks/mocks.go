@@ -50,6 +50,9 @@ var _ domain.Platform = &PlatformMock{}
 //			DeploymentStatusFunc: func(ctx context.Context, deploymentID string) (string, error) {
 //				panic("mock out the DeploymentStatus method")
 //			},
+//			EnvironmentDefaultsFunc: func(ctx context.Context, environmentID string) ([]string, error) {
+//				panic("mock out the EnvironmentDefaults method")
+//			},
 //			ForkEnvironmentFunc: func(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 //				panic("mock out the ForkEnvironment method")
 //			},
@@ -61,6 +64,9 @@ var _ domain.Platform = &PlatformMock{}
 //			},
 //			GrantResourceFunc: func(ctx context.Context, resourceID string) error {
 //				panic("mock out the GrantResource method")
+//			},
+//			GrantResourceToProjectFunc: func(ctx context.Context, resourceID string, projectID string) error {
+//				panic("mock out the GrantResourceToProject method")
 //			},
 //			PingFunc: func(ctx context.Context) (string, error) {
 //				panic("mock out the Ping method")
@@ -114,6 +120,9 @@ type PlatformMock struct {
 	// DeploymentStatusFunc mocks the DeploymentStatus method.
 	DeploymentStatusFunc func(ctx context.Context, deploymentID string) (string, error)
 
+	// EnvironmentDefaultsFunc mocks the EnvironmentDefaults method.
+	EnvironmentDefaultsFunc func(ctx context.Context, environmentID string) ([]string, error)
+
 	// ForkEnvironmentFunc mocks the ForkEnvironment method.
 	ForkEnvironmentFunc func(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error)
 
@@ -125,6 +134,9 @@ type PlatformMock struct {
 
 	// GrantResourceFunc mocks the GrantResource method.
 	GrantResourceFunc func(ctx context.Context, resourceID string) error
+
+	// GrantResourceToProjectFunc mocks the GrantResourceToProject method.
+	GrantResourceToProjectFunc func(ctx context.Context, resourceID string, projectID string) error
 
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) (string, error)
@@ -231,6 +243,13 @@ type PlatformMock struct {
 			// DeploymentID is the deploymentID argument value.
 			DeploymentID string
 		}
+		// EnvironmentDefaults holds details about calls to the EnvironmentDefaults method.
+		EnvironmentDefaults []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
+		}
 		// ForkEnvironment holds details about calls to the ForkEnvironment method.
 		ForkEnvironment []struct {
 			// Ctx is the ctx argument value.
@@ -258,6 +277,15 @@ type PlatformMock struct {
 			Ctx context.Context
 			// ResourceID is the resourceID argument value.
 			ResourceID string
+		}
+		// GrantResourceToProject holds details about calls to the GrantResourceToProject method.
+		GrantResourceToProject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ResourceID is the resourceID argument value.
+			ResourceID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// Ping holds details about calls to the Ping method.
 		Ping []struct {
@@ -313,10 +341,12 @@ type PlatformMock struct {
 	lockDeployEnvironment         sync.RWMutex
 	lockDeployInstance            sync.RWMutex
 	lockDeploymentStatus          sync.RWMutex
+	lockEnvironmentDefaults       sync.RWMutex
 	lockForkEnvironment           sync.RWMutex
 	lockGetEnvironment            sync.RWMutex
 	lockGetProject                sync.RWMutex
 	lockGrantResource             sync.RWMutex
+	lockGrantResourceToProject    sync.RWMutex
 	lockPing                      sync.RWMutex
 	lockSetEnvironmentDefault     sync.RWMutex
 	lockSetEnvironmentDescription sync.RWMutex
@@ -753,6 +783,46 @@ func (mock *PlatformMock) DeploymentStatusCalls() []struct {
 	return calls
 }
 
+// EnvironmentDefaults calls EnvironmentDefaultsFunc.
+func (mock *PlatformMock) EnvironmentDefaults(ctx context.Context, environmentID string) ([]string, error) {
+	callInfo := struct {
+		Ctx           context.Context
+		EnvironmentID string
+	}{
+		Ctx:           ctx,
+		EnvironmentID: environmentID,
+	}
+	mock.lockEnvironmentDefaults.Lock()
+	mock.calls.EnvironmentDefaults = append(mock.calls.EnvironmentDefaults, callInfo)
+	mock.lockEnvironmentDefaults.Unlock()
+	if mock.EnvironmentDefaultsFunc == nil {
+		var (
+			stringsOut []string
+			errOut     error
+		)
+		return stringsOut, errOut
+	}
+	return mock.EnvironmentDefaultsFunc(ctx, environmentID)
+}
+
+// EnvironmentDefaultsCalls gets all the calls that were made to EnvironmentDefaults.
+// Check the length with:
+//
+//	len(mockedPlatform.EnvironmentDefaultsCalls())
+func (mock *PlatformMock) EnvironmentDefaultsCalls() []struct {
+	Ctx           context.Context
+	EnvironmentID string
+} {
+	var calls []struct {
+		Ctx           context.Context
+		EnvironmentID string
+	}
+	mock.lockEnvironmentDefaults.RLock()
+	calls = mock.calls.EnvironmentDefaults
+	mock.lockEnvironmentDefaults.RUnlock()
+	return calls
+}
+
 // ForkEnvironment calls ForkEnvironmentFunc.
 func (mock *PlatformMock) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 	callInfo := struct {
@@ -909,6 +979,49 @@ func (mock *PlatformMock) GrantResourceCalls() []struct {
 	mock.lockGrantResource.RLock()
 	calls = mock.calls.GrantResource
 	mock.lockGrantResource.RUnlock()
+	return calls
+}
+
+// GrantResourceToProject calls GrantResourceToProjectFunc.
+func (mock *PlatformMock) GrantResourceToProject(ctx context.Context, resourceID string, projectID string) error {
+	callInfo := struct {
+		Ctx        context.Context
+		ResourceID string
+		ProjectID  string
+	}{
+		Ctx:        ctx,
+		ResourceID: resourceID,
+		ProjectID:  projectID,
+	}
+	mock.lockGrantResourceToProject.Lock()
+	mock.calls.GrantResourceToProject = append(mock.calls.GrantResourceToProject, callInfo)
+	mock.lockGrantResourceToProject.Unlock()
+	if mock.GrantResourceToProjectFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.GrantResourceToProjectFunc(ctx, resourceID, projectID)
+}
+
+// GrantResourceToProjectCalls gets all the calls that were made to GrantResourceToProject.
+// Check the length with:
+//
+//	len(mockedPlatform.GrantResourceToProjectCalls())
+func (mock *PlatformMock) GrantResourceToProjectCalls() []struct {
+	Ctx        context.Context
+	ResourceID string
+	ProjectID  string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		ResourceID string
+		ProjectID  string
+	}
+	mock.lockGrantResourceToProject.RLock()
+	calls = mock.calls.GrantResourceToProject
+	mock.lockGrantResourceToProject.RUnlock()
 	return calls
 }
 

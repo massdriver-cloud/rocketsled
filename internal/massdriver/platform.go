@@ -376,6 +376,78 @@ func (c *Client) GrantResource(ctx context.Context, resourceID string) error {
 	return out.CreateResourceGrant.check("createResourceGrant")
 }
 
+const resourceGrantsQuery = `
+query RocketsledResourceGrants($organizationId: ID!, $id: ID!) {
+  resource(organizationId: $organizationId, id: $id) {
+    id
+    grants(cursor: { limit: 100 }) { items { action recipientConditions } }
+  }
+}`
+
+// GrantResourceToProject shares a resource with one project, so environments
+// there can use it as a default. A grant that already covers the project is left alone.
+func (c *Client) GrantResourceToProject(ctx context.Context, resourceID, projectID string) error {
+	var existing struct {
+		Resource *struct {
+			Grants struct {
+				Items []struct {
+					Action              string `json:"action"`
+					RecipientConditions string `json:"recipientConditions"`
+				} `json:"items"`
+			} `json:"grants"`
+		} `json:"resource"`
+	}
+	if err := c.do(ctx, resourceGrantsQuery, map[string]any{"id": resourceID}, &existing); err != nil {
+		return err
+	}
+	if existing.Resource == nil {
+		return &APIError{Code: "NOT_FOUND", Message: "resource " + resourceID + " not found"}
+	}
+	for _, g := range existing.Resource.Grants.Items {
+		if g.Action == "resource:export" && conditionsCover(g.RecipientConditions, "md-project", projectID) {
+			return nil
+		}
+	}
+	conditions, err := json.Marshal(map[string][]string{"md-project": {projectID}})
+	if err != nil {
+		return err
+	}
+	var out struct {
+		CreateResourceGrant payload[struct{ ID string }] `json:"createResourceGrant"`
+	}
+	vars := map[string]any{
+		"resourceId": resourceID,
+		"input":      map[string]any{"action": "resource:export", "recipientConditions": string(conditions)},
+	}
+	if err := c.do(ctx, grantResourceMutation, vars, &out); err != nil {
+		return err
+	}
+	return out.CreateResourceGrant.check("createResourceGrant")
+}
+
+// conditionsCover reports whether a grant's recipient conditions admit value
+// for key: the wildcard, a wildcard key, or a list naming it.
+func conditionsCover(conditions, key, value string) bool {
+	if conditions == "*" {
+		return true
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(conditions), &parsed); err != nil || len(parsed) != 1 {
+		return false
+	}
+	switch v := parsed[key].(type) {
+	case string:
+		return v == "*" || v == value
+	case []any:
+		for _, item := range v {
+			if item == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 const setDefaultMutation = `
 mutation RocketsledSetDefault($organizationId: ID!, $environmentId: ID!, $resourceId: ID!) {
   setEnvironmentDefault(organizationId: $organizationId, environmentId: $environmentId, resourceId: $resourceId) {
@@ -393,6 +465,39 @@ func (c *Client) SetEnvironmentDefault(ctx context.Context, environmentID, resou
 		return err
 	}
 	return out.SetEnvironmentDefault.check("setEnvironmentDefault")
+}
+
+const environmentDefaultsQuery = `
+query RocketsledEnvironmentDefaults($organizationId: ID!, $id: ID!) {
+  environment(organizationId: $organizationId, id: $id) {
+    id
+    defaults(cursor: { limit: 100 }) { items { resource { id } } }
+  }
+}`
+
+func (c *Client) EnvironmentDefaults(ctx context.Context, environmentID string) ([]string, error) {
+	var out struct {
+		Environment *struct {
+			Defaults struct {
+				Items []struct {
+					Resource struct {
+						ID string `json:"id"`
+					} `json:"resource"`
+				} `json:"items"`
+			} `json:"defaults"`
+		} `json:"environment"`
+	}
+	if err := c.do(ctx, environmentDefaultsQuery, map[string]any{"id": environmentID}, &out); err != nil {
+		return nil, err
+	}
+	if out.Environment == nil {
+		return nil, &APIError{Code: "NOT_FOUND", Message: "environment " + environmentID + " not found"}
+	}
+	ids := make([]string, 0, len(out.Environment.Defaults.Items))
+	for _, d := range out.Environment.Defaults.Items {
+		ids = append(ids, d.Resource.ID)
+	}
+	return ids, nil
 }
 
 const createOrganizationMutation = `

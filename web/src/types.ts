@@ -249,6 +249,7 @@ export interface OfferedStage extends StageSummary {
 }
 
 export interface Offer {
+  platform?: { state: "deploying" | "running" | "failed"; error?: string };
   runtimes: RuntimeOffer[];
   limits: { appsPerPerson?: number; totalApps?: number; ttlHours?: number };
   stages: StageSummary[];

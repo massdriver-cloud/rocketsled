@@ -47,8 +47,13 @@ type Platform interface {
 	CreateResource(ctx context.Context, resourceTypeID, name string, payload map[string]any) (string, error)
 	// GrantResource shares a resource with every environment so it can be a default.
 	GrantResource(ctx context.Context, resourceID string) error
+	// GrantResourceToProject shares a resource with one project's environments,
+	// unless a grant already covers it.
+	GrantResourceToProject(ctx context.Context, resourceID, projectID string) error
 	// SetEnvironmentDefault pins a resource as the environment's default of its type.
 	SetEnvironmentDefault(ctx context.Context, environmentID, resourceID string) error
+	// EnvironmentDefaults lists the resources pinned as an environment's defaults.
+	EnvironmentDefaults(ctx context.Context, environmentID string) ([]string, error)
 }
 
 // PlatformFactory builds a Platform for a credential.

@@ -166,3 +166,51 @@ func TestReleasesTrackTheirOwnDeployment(t *testing.T) {
 	assert.Equal(t, "RUNNING", status)
 	assert.Equal(t, "5f0c", last.Variables["id"])
 }
+
+func TestGrantResourceToProjectSkipsCoveredProjects(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		creates  bool
+	}{
+		{"no grants", `[]`, true},
+		{"wildcard", `[{"action":"resource:export","recipientConditions":"*"}]`, false},
+		{"lists the project", `[{"action":"resource:export","recipientConditions":"{\"md-project\":[\"node\",\"ruby\"]}"}]`, false},
+		{"another project", `[{"action":"resource:export","recipientConditions":"{\"md-project\":[\"node\"]}"}]`, true},
+		{"narrower than the project", `[{"action":"resource:export","recipientConditions":"{\"md-project\":[\"ruby\"],\"md-environment\":[\"ruby-prod\"]}"}]`, true},
+		{"view only", `[{"action":"resource:view","recipientConditions":"*"}]`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []capture
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var c capture
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&c))
+				calls = append(calls, c)
+				if len(calls) == 1 {
+					_, _ = w.Write([]byte(`{"data":{"resource":{"id":"platform-main-cluster.cluster","grants":{"items":` + tc.existing + `}}}}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"data":{"createResourceGrant":{"successful":true,"result":{"id":"g"}}}}`))
+			}))
+			t.Cleanup(srv.Close)
+			c := massdriver.New(srv.URL, "acme", "md_secret", srv.Client())
+
+			require.NoError(t, c.GrantResourceToProject(context.Background(), "platform-main-cluster.cluster", "ruby"))
+			if !tc.creates {
+				assert.Len(t, calls, 1)
+				return
+			}
+			require.Len(t, calls, 2)
+			assert.Equal(t, map[string]any{"action": "resource:export", "recipientConditions": `{"md-project":["ruby"]}`}, calls[1].Variables["input"])
+		})
+	}
+}
+
+func TestEnvironmentDefaultsListsResourceIDs(t *testing.T) {
+	c, last, _ := server(t, `{"data":{"environment":{"id":"ruby-template","defaults":{"items":[{"resource":{"id":"platform-main-cluster.cluster"}},{"resource":{"id":"res-role"}}]}}}}`, 200)
+	ids, err := c.EnvironmentDefaults(context.Background(), "ruby-template")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"platform-main-cluster.cluster", "res-role"}, ids)
+	assert.Equal(t, "ruby-template", last.Variables["id"])
+}
