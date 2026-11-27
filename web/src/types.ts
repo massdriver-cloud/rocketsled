@@ -113,6 +113,7 @@ export interface Environment {
   addons?: string[];
   image?: string;
   stage?: string;
+  preview?: boolean;
   state: EnvironmentState;
   createdAt: string;
   updatedAt: string;

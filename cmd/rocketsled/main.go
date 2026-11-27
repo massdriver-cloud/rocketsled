@@ -176,6 +176,7 @@ func serve(args []string, log *slog.Logger) error {
 			defer tick.Stop()
 			for {
 				a.svc.ReapExpired(ctx)
+				a.svc.ReapPreviews(ctx)
 				select {
 				case <-ctx.Done():
 					return
@@ -296,6 +297,9 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
 			AppComponent: r.AppComponent, ImageParam: r.ImageParam, Pinned: r.Pinned,
 		})
+	}
+	if p.Previews != nil {
+		out.Previews = &domain.Previews{Presets: p.Previews.Presets, TTL: p.Previews.TTL}
 	}
 	for _, a := range p.Addons {
 		out.Addons = append(out.Addons, domain.Addon{ID: a.ID, Title: a.Title, Summary: a.Summary})

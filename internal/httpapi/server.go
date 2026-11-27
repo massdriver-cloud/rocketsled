@@ -98,6 +98,8 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/v1/account/tokens/{id}", s.account(s.handleRevokeToken))
 	m.HandleFunc("GET /api/v1/environments/{id}/releases", s.releaser(s.handleListReleases))
 	m.HandleFunc("POST /api/v1/environments/{id}/releases", s.releaser(s.handleRelease))
+	m.HandleFunc("PUT /api/v1/previews/{name}", s.releaser(s.handlePreview))
+	m.HandleFunc("DELETE /api/v1/previews/{name}", s.releaser(s.handleDeletePreview))
 	m.HandleFunc("POST /api/v1/environments/{id}/addons", s.account(s.handleAddAddon))
 	m.HandleFunc("DELETE /api/v1/environments/{id}/addons/{component}", s.account(s.handleRemoveAddon))
 	m.HandleFunc("GET /api/v1/environments/{id}/domains", s.account(s.handleGetDomains))
@@ -572,6 +574,29 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, release)
+}
+
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	var in domain.PreviewInput
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	release, err := s.svc.Preview(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("name"), in)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, release)
+}
+
+func (s *Server) handleDeletePreview(w http.ResponseWriter, r *http.Request) {
+	env, err := s.svc.DeletePreview(r.Context(), accountFrom(r.Context()), r.PathValue("name"))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, env)
 }
 
 func (s *Server) handleAddAddon(w http.ResponseWriter, r *http.Request) {

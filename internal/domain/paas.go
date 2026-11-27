@@ -27,6 +27,13 @@ type PaaS struct {
 	// Domains, when set, lets customers point their own hostnames at an app.
 	Domains  *Domains
 	Pipeline Pipeline
+	Previews *Previews
+}
+
+// Previews are short-lived apps a build makes per branch or pull request.
+type Previews struct {
+	Presets map[string]string
+	TTL     time.Duration
 }
 
 // Limits keep an open sign-up from running up the operator's bill.
@@ -327,7 +334,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		ParentEnvironmentID:     templateID(rt),
 		ID:                      in.Slug,
 		Name:                    in.Name,
-		Description:             ownerMarker(user.Login, account.OwnerUserID, in.Stage, pickedPresets(picked, presets)),
+		Description:             describeApp(user.Login, account.OwnerUserID, in.Stage, pickedPresets(picked, presets), in.Preview),
 		CopyEnvironmentDefaults: true,
 	})
 	if err != nil {
@@ -345,7 +352,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	env := &Environment{
 		ID: forked.ID, AccountID: account.ID, Slug: in.Slug, Name: in.Name, EnvironmentID: forked.ID,
 		Presets: names, Runtime: rt.ID, Addons: addons, Stage: in.Stage, State: EnvironmentStateDeploying,
-		CreatedBy: user.ID, CreatedAt: now, UpdatedAt: now,
+		Preview: in.Preview, Image: in.Image, CreatedBy: user.ID, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.store.CreateEnvironment(ctx, env); err != nil {
 		return nil, err
@@ -571,6 +578,18 @@ func onlyPicked(env *Environment, live *PlatformEnvironment) {
 // app survives the server losing its database.
 var ownerPattern = regexp.MustCompile(`\[owner ([^\]\s]+)\]$`)
 
+// previewMarker tags an app a build made for a branch, so the preview reaper
+// finds it even after the server loses its database.
+const previewMarker = "[preview]"
+
+func describeApp(login, userID, stage string, picks map[string]string, preview bool) string {
+	d := ownerMarker(login, userID, stage, picks)
+	if preview {
+		d = strings.Replace(d, "[owner ", previewMarker+" [owner ", 1)
+	}
+	return d
+}
+
 func ownerMarker(login, userID, stage string, picks map[string]string) string {
 	if stage != "" {
 		return fmt.Sprintf("Made in Rocketsled for %s [stage %s] %s [owner %s]", login, stage, picksMarker(picks), userID)
@@ -769,7 +788,7 @@ func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 		rt := runtimeOf[id]
 		env := &Environment{
 			ID: id, AccountID: account.ID, Slug: strings.TrimPrefix(id, rt.Project+"-"), Name: summary.Name, EnvironmentID: id,
-			Presets: map[string]string{}, Runtime: rt.ID, Stage: stageOf(summary.Description), State: EnvironmentStateDeploying,
+			Presets: map[string]string{}, Runtime: rt.ID, Stage: stageOf(summary.Description), State: EnvironmentStateDeploying, Preview: strings.Contains(summary.Description, previewMarker),
 			CreatedBy: account.OwnerUserID, CreatedAt: summary.CreatedAt, UpdatedAt: s.now(),
 		}
 		tmpl := map[string]bool{}
@@ -864,14 +883,9 @@ func (s *Service) ReapExpired(ctx context.Context) {
 		if !expired {
 			continue
 		}
-		s.reaped.Lock()
-		last, tried := s.reaped.at[e.ID]
-		if tried && s.now().Sub(last) < time.Hour {
-			s.reaped.Unlock()
+		if !s.reaped.try(e.ID, s.now()) {
 			continue
 		}
-		s.reaped.at[e.ID] = s.now()
-		s.reaped.Unlock()
 		if err := platform.DecommissionEnvironment(ctx, e.ID); err != nil {
 			s.log.Warn("reaper: decommission", "environment", e.ID, "err", err)
 		} else {

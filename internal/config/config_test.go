@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,6 +101,9 @@ paas:
     db: {title: Postgres}
   pipeline: {stages: []}
   domains: {component: web, param: subdomain, target_field: url}
+  previews:
+    presets: {web: Development, db: Development}
+    ttl: 72h
 auth:
   providers:
     password: {password: hunter22}
@@ -110,6 +114,7 @@ auth:
 	assert.Equal(t, "ruby", cfg.PaaS.Runtimes[0].Project)
 	assert.Equal(t, []string{"worker", "db"}, []string{cfg.PaaS.Addons[0].ID, cfg.PaaS.Addons[1].ID})
 	assert.Equal(t, "{{environment_id}}", cfg.PaaS.Pinned["web"]["subdomain"])
+	assert.Equal(t, &config.Previews{Presets: map[string]string{"web": "Development", "db": "Development"}, TTL: 72 * time.Hour}, cfg.PaaS.Previews)
 	assert.Equal(t, &config.Domains{Component: "web", Param: "subdomain", TargetField: "url"}, cfg.PaaS.Domains)
 }
 
