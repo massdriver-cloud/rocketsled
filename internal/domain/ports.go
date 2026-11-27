@@ -223,4 +223,13 @@ type Store interface {
 	CreateRun(ctx context.Context, r *Run) error
 	UpdateRun(ctx context.Context, r *Run) error
 	ListRuns(ctx context.Context, environmentID string, limit int) ([]Run, error)
+
+	CreateToken(ctx context.Context, t *Token, hash string) error
+	ListTokens(ctx context.Context, accountID string) ([]Token, error)
+	GetTokenByHash(ctx context.Context, hash string) (*Token, error)
+	TouchToken(ctx context.Context, id string, at time.Time) error
+	DeleteToken(ctx context.Context, accountID, id string) error
+
+	CreateRelease(ctx context.Context, r *Release) error
+	ListReleases(ctx context.Context, environmentID string, limit int) ([]Release, error)
 }

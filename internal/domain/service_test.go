@@ -91,8 +91,11 @@ type harness struct {
 	ids       []string
 }
 
-func newHarness(t *testing.T, mode domain.AccountMode) *harness {
+func newHarness(t *testing.T, mode domain.AccountMode, catalogs ...domain.Catalog) *harness {
 	t.Helper()
+	if len(catalogs) == 0 {
+		catalogs = []domain.Catalog{awsCatalog(), legacyCatalog()}
+	}
 	h := &harness{
 		platform:  &mocks.PlatformMock{},
 		installer: &mocks.InstallerMock{},
@@ -127,7 +130,7 @@ func newHarness(t *testing.T, mode domain.AccountMode) *harness {
 		Store:            h.store,
 		SCMs:             []domain.SCM{scm},
 		Installer:        h.installer,
-		Catalogs:         []domain.Catalog{awsCatalog(), legacyCatalog()},
+		Catalogs:         catalogs,
 		Mode:             mode,
 		SharedCredential: domain.Credential{URL: "https://api.massdriver.cloud", OrganizationID: "rs-shared", APIKey: "md_shared"},
 		OrgCreator:       domain.Credential{URL: "https://api.massdriver.cloud", APIKey: "md_pat"},

@@ -7,6 +7,7 @@ import (
 	"context"
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
 	"sync"
+	"time"
 )
 
 // Ensure, that PlatformMock does implement domain.Platform.
@@ -1190,11 +1191,20 @@ var _ domain.Store = &StoreMock{}
 //			CreateEnvironmentFunc: func(ctx context.Context, e *domain.Environment) error {
 //				panic("mock out the CreateEnvironment method")
 //			},
+//			CreateReleaseFunc: func(ctx context.Context, r *domain.Release) error {
+//				panic("mock out the CreateRelease method")
+//			},
 //			CreateRunFunc: func(ctx context.Context, r *domain.Run) error {
 //				panic("mock out the CreateRun method")
 //			},
+//			CreateTokenFunc: func(ctx context.Context, t *domain.Token, hash string) error {
+//				panic("mock out the CreateToken method")
+//			},
 //			DeleteEnvironmentFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the DeleteEnvironment method")
+//			},
+//			DeleteTokenFunc: func(ctx context.Context, accountID string, id string) error {
+//				panic("mock out the DeleteToken method")
 //			},
 //			GetAccountFunc: func(ctx context.Context, id string) (*domain.Account, error) {
 //				panic("mock out the GetAccount method")
@@ -1211,6 +1221,9 @@ var _ domain.Store = &StoreMock{}
 //			GetEnvironmentFunc: func(ctx context.Context, id string) (*domain.Environment, error) {
 //				panic("mock out the GetEnvironment method")
 //			},
+//			GetTokenByHashFunc: func(ctx context.Context, hash string) (*domain.Token, error) {
+//				panic("mock out the GetTokenByHash method")
+//			},
 //			GetUserFunc: func(ctx context.Context, id string) (*domain.User, error) {
 //				panic("mock out the GetUser method")
 //			},
@@ -1220,11 +1233,20 @@ var _ domain.Store = &StoreMock{}
 //			ListEnvironmentsFunc: func(ctx context.Context, accountID string) ([]domain.Environment, error) {
 //				panic("mock out the ListEnvironments method")
 //			},
+//			ListReleasesFunc: func(ctx context.Context, environmentID string, limit int) ([]domain.Release, error) {
+//				panic("mock out the ListReleases method")
+//			},
 //			ListRunsFunc: func(ctx context.Context, environmentID string, limit int) ([]domain.Run, error) {
 //				panic("mock out the ListRuns method")
 //			},
+//			ListTokensFunc: func(ctx context.Context, accountID string) ([]domain.Token, error) {
+//				panic("mock out the ListTokens method")
+//			},
 //			SaveBootstrapStateFunc: func(ctx context.Context, accountID string, state []byte) error {
 //				panic("mock out the SaveBootstrapState method")
+//			},
+//			TouchTokenFunc: func(ctx context.Context, id string, at time.Time) error {
+//				panic("mock out the TouchToken method")
 //			},
 //			UpdateAccountFunc: func(ctx context.Context, a *domain.Account) error {
 //				panic("mock out the UpdateAccount method")
@@ -1251,11 +1273,20 @@ type StoreMock struct {
 	// CreateEnvironmentFunc mocks the CreateEnvironment method.
 	CreateEnvironmentFunc func(ctx context.Context, e *domain.Environment) error
 
+	// CreateReleaseFunc mocks the CreateRelease method.
+	CreateReleaseFunc func(ctx context.Context, r *domain.Release) error
+
 	// CreateRunFunc mocks the CreateRun method.
 	CreateRunFunc func(ctx context.Context, r *domain.Run) error
 
+	// CreateTokenFunc mocks the CreateToken method.
+	CreateTokenFunc func(ctx context.Context, t *domain.Token, hash string) error
+
 	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
 	DeleteEnvironmentFunc func(ctx context.Context, id string) error
+
+	// DeleteTokenFunc mocks the DeleteToken method.
+	DeleteTokenFunc func(ctx context.Context, accountID string, id string) error
 
 	// GetAccountFunc mocks the GetAccount method.
 	GetAccountFunc func(ctx context.Context, id string) (*domain.Account, error)
@@ -1272,6 +1303,9 @@ type StoreMock struct {
 	// GetEnvironmentFunc mocks the GetEnvironment method.
 	GetEnvironmentFunc func(ctx context.Context, id string) (*domain.Environment, error)
 
+	// GetTokenByHashFunc mocks the GetTokenByHash method.
+	GetTokenByHashFunc func(ctx context.Context, hash string) (*domain.Token, error)
+
 	// GetUserFunc mocks the GetUser method.
 	GetUserFunc func(ctx context.Context, id string) (*domain.User, error)
 
@@ -1281,11 +1315,20 @@ type StoreMock struct {
 	// ListEnvironmentsFunc mocks the ListEnvironments method.
 	ListEnvironmentsFunc func(ctx context.Context, accountID string) ([]domain.Environment, error)
 
+	// ListReleasesFunc mocks the ListReleases method.
+	ListReleasesFunc func(ctx context.Context, environmentID string, limit int) ([]domain.Release, error)
+
 	// ListRunsFunc mocks the ListRuns method.
 	ListRunsFunc func(ctx context.Context, environmentID string, limit int) ([]domain.Run, error)
 
+	// ListTokensFunc mocks the ListTokens method.
+	ListTokensFunc func(ctx context.Context, accountID string) ([]domain.Token, error)
+
 	// SaveBootstrapStateFunc mocks the SaveBootstrapState method.
 	SaveBootstrapStateFunc func(ctx context.Context, accountID string, state []byte) error
+
+	// TouchTokenFunc mocks the TouchToken method.
+	TouchTokenFunc func(ctx context.Context, id string, at time.Time) error
 
 	// UpdateAccountFunc mocks the UpdateAccount method.
 	UpdateAccountFunc func(ctx context.Context, a *domain.Account) error
@@ -1317,6 +1360,13 @@ type StoreMock struct {
 			// E is the e argument value.
 			E *domain.Environment
 		}
+		// CreateRelease holds details about calls to the CreateRelease method.
+		CreateRelease []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// R is the r argument value.
+			R *domain.Release
+		}
 		// CreateRun holds details about calls to the CreateRun method.
 		CreateRun []struct {
 			// Ctx is the ctx argument value.
@@ -1324,10 +1374,28 @@ type StoreMock struct {
 			// R is the r argument value.
 			R *domain.Run
 		}
+		// CreateToken holds details about calls to the CreateToken method.
+		CreateToken []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// T is the t argument value.
+			T *domain.Token
+			// Hash is the hash argument value.
+			Hash string
+		}
 		// DeleteEnvironment holds details about calls to the DeleteEnvironment method.
 		DeleteEnvironment []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// DeleteToken holds details about calls to the DeleteToken method.
+		DeleteToken []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// AccountID is the accountID argument value.
+			AccountID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -1366,6 +1434,13 @@ type StoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// GetTokenByHash holds details about calls to the GetTokenByHash method.
+		GetTokenByHash []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Hash is the hash argument value.
+			Hash string
+		}
 		// GetUser holds details about calls to the GetUser method.
 		GetUser []struct {
 			// Ctx is the ctx argument value.
@@ -1387,6 +1462,15 @@ type StoreMock struct {
 			// AccountID is the accountID argument value.
 			AccountID string
 		}
+		// ListReleases holds details about calls to the ListReleases method.
+		ListReleases []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
+			// Limit is the limit argument value.
+			Limit int
+		}
 		// ListRuns holds details about calls to the ListRuns method.
 		ListRuns []struct {
 			// Ctx is the ctx argument value.
@@ -1396,6 +1480,13 @@ type StoreMock struct {
 			// Limit is the limit argument value.
 			Limit int
 		}
+		// ListTokens holds details about calls to the ListTokens method.
+		ListTokens []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// AccountID is the accountID argument value.
+			AccountID string
+		}
 		// SaveBootstrapState holds details about calls to the SaveBootstrapState method.
 		SaveBootstrapState []struct {
 			// Ctx is the ctx argument value.
@@ -1404,6 +1495,15 @@ type StoreMock struct {
 			AccountID string
 			// State is the state argument value.
 			State []byte
+		}
+		// TouchToken holds details about calls to the TouchToken method.
+		TouchToken []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// At is the at argument value.
+			At time.Time
 		}
 		// UpdateAccount holds details about calls to the UpdateAccount method.
 		UpdateAccount []struct {
@@ -1436,18 +1536,25 @@ type StoreMock struct {
 	}
 	lockCreateAccount        sync.RWMutex
 	lockCreateEnvironment    sync.RWMutex
+	lockCreateRelease        sync.RWMutex
 	lockCreateRun            sync.RWMutex
+	lockCreateToken          sync.RWMutex
 	lockDeleteEnvironment    sync.RWMutex
+	lockDeleteToken          sync.RWMutex
 	lockGetAccount           sync.RWMutex
 	lockGetAccountByOwner    sync.RWMutex
 	lockGetAccountCredential sync.RWMutex
 	lockGetBootstrapState    sync.RWMutex
 	lockGetEnvironment       sync.RWMutex
+	lockGetTokenByHash       sync.RWMutex
 	lockGetUser              sync.RWMutex
 	lockListAccounts         sync.RWMutex
 	lockListEnvironments     sync.RWMutex
+	lockListReleases         sync.RWMutex
 	lockListRuns             sync.RWMutex
+	lockListTokens           sync.RWMutex
 	lockSaveBootstrapState   sync.RWMutex
+	lockTouchToken           sync.RWMutex
 	lockUpdateAccount        sync.RWMutex
 	lockUpdateEnvironment    sync.RWMutex
 	lockUpdateRun            sync.RWMutex
@@ -1536,6 +1643,45 @@ func (mock *StoreMock) CreateEnvironmentCalls() []struct {
 	return calls
 }
 
+// CreateRelease calls CreateReleaseFunc.
+func (mock *StoreMock) CreateRelease(ctx context.Context, r *domain.Release) error {
+	callInfo := struct {
+		Ctx context.Context
+		R   *domain.Release
+	}{
+		Ctx: ctx,
+		R:   r,
+	}
+	mock.lockCreateRelease.Lock()
+	mock.calls.CreateRelease = append(mock.calls.CreateRelease, callInfo)
+	mock.lockCreateRelease.Unlock()
+	if mock.CreateReleaseFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateReleaseFunc(ctx, r)
+}
+
+// CreateReleaseCalls gets all the calls that were made to CreateRelease.
+// Check the length with:
+//
+//	len(mockedStore.CreateReleaseCalls())
+func (mock *StoreMock) CreateReleaseCalls() []struct {
+	Ctx context.Context
+	R   *domain.Release
+} {
+	var calls []struct {
+		Ctx context.Context
+		R   *domain.Release
+	}
+	mock.lockCreateRelease.RLock()
+	calls = mock.calls.CreateRelease
+	mock.lockCreateRelease.RUnlock()
+	return calls
+}
+
 // CreateRun calls CreateRunFunc.
 func (mock *StoreMock) CreateRun(ctx context.Context, r *domain.Run) error {
 	callInfo := struct {
@@ -1575,6 +1721,49 @@ func (mock *StoreMock) CreateRunCalls() []struct {
 	return calls
 }
 
+// CreateToken calls CreateTokenFunc.
+func (mock *StoreMock) CreateToken(ctx context.Context, t *domain.Token, hash string) error {
+	callInfo := struct {
+		Ctx  context.Context
+		T    *domain.Token
+		Hash string
+	}{
+		Ctx:  ctx,
+		T:    t,
+		Hash: hash,
+	}
+	mock.lockCreateToken.Lock()
+	mock.calls.CreateToken = append(mock.calls.CreateToken, callInfo)
+	mock.lockCreateToken.Unlock()
+	if mock.CreateTokenFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateTokenFunc(ctx, t, hash)
+}
+
+// CreateTokenCalls gets all the calls that were made to CreateToken.
+// Check the length with:
+//
+//	len(mockedStore.CreateTokenCalls())
+func (mock *StoreMock) CreateTokenCalls() []struct {
+	Ctx  context.Context
+	T    *domain.Token
+	Hash string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		T    *domain.Token
+		Hash string
+	}
+	mock.lockCreateToken.RLock()
+	calls = mock.calls.CreateToken
+	mock.lockCreateToken.RUnlock()
+	return calls
+}
+
 // DeleteEnvironment calls DeleteEnvironmentFunc.
 func (mock *StoreMock) DeleteEnvironment(ctx context.Context, id string) error {
 	callInfo := struct {
@@ -1611,6 +1800,49 @@ func (mock *StoreMock) DeleteEnvironmentCalls() []struct {
 	mock.lockDeleteEnvironment.RLock()
 	calls = mock.calls.DeleteEnvironment
 	mock.lockDeleteEnvironment.RUnlock()
+	return calls
+}
+
+// DeleteToken calls DeleteTokenFunc.
+func (mock *StoreMock) DeleteToken(ctx context.Context, accountID string, id string) error {
+	callInfo := struct {
+		Ctx       context.Context
+		AccountID string
+		ID        string
+	}{
+		Ctx:       ctx,
+		AccountID: accountID,
+		ID:        id,
+	}
+	mock.lockDeleteToken.Lock()
+	mock.calls.DeleteToken = append(mock.calls.DeleteToken, callInfo)
+	mock.lockDeleteToken.Unlock()
+	if mock.DeleteTokenFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.DeleteTokenFunc(ctx, accountID, id)
+}
+
+// DeleteTokenCalls gets all the calls that were made to DeleteToken.
+// Check the length with:
+//
+//	len(mockedStore.DeleteTokenCalls())
+func (mock *StoreMock) DeleteTokenCalls() []struct {
+	Ctx       context.Context
+	AccountID string
+	ID        string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		AccountID string
+		ID        string
+	}
+	mock.lockDeleteToken.RLock()
+	calls = mock.calls.DeleteToken
+	mock.lockDeleteToken.RUnlock()
 	return calls
 }
 
@@ -1814,6 +2046,46 @@ func (mock *StoreMock) GetEnvironmentCalls() []struct {
 	return calls
 }
 
+// GetTokenByHash calls GetTokenByHashFunc.
+func (mock *StoreMock) GetTokenByHash(ctx context.Context, hash string) (*domain.Token, error) {
+	callInfo := struct {
+		Ctx  context.Context
+		Hash string
+	}{
+		Ctx:  ctx,
+		Hash: hash,
+	}
+	mock.lockGetTokenByHash.Lock()
+	mock.calls.GetTokenByHash = append(mock.calls.GetTokenByHash, callInfo)
+	mock.lockGetTokenByHash.Unlock()
+	if mock.GetTokenByHashFunc == nil {
+		var (
+			tokenOut *domain.Token
+			errOut   error
+		)
+		return tokenOut, errOut
+	}
+	return mock.GetTokenByHashFunc(ctx, hash)
+}
+
+// GetTokenByHashCalls gets all the calls that were made to GetTokenByHash.
+// Check the length with:
+//
+//	len(mockedStore.GetTokenByHashCalls())
+func (mock *StoreMock) GetTokenByHashCalls() []struct {
+	Ctx  context.Context
+	Hash string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Hash string
+	}
+	mock.lockGetTokenByHash.RLock()
+	calls = mock.calls.GetTokenByHash
+	mock.lockGetTokenByHash.RUnlock()
+	return calls
+}
+
 // GetUser calls GetUserFunc.
 func (mock *StoreMock) GetUser(ctx context.Context, id string) (*domain.User, error) {
 	callInfo := struct {
@@ -1934,6 +2206,50 @@ func (mock *StoreMock) ListEnvironmentsCalls() []struct {
 	return calls
 }
 
+// ListReleases calls ListReleasesFunc.
+func (mock *StoreMock) ListReleases(ctx context.Context, environmentID string, limit int) ([]domain.Release, error) {
+	callInfo := struct {
+		Ctx           context.Context
+		EnvironmentID string
+		Limit         int
+	}{
+		Ctx:           ctx,
+		EnvironmentID: environmentID,
+		Limit:         limit,
+	}
+	mock.lockListReleases.Lock()
+	mock.calls.ListReleases = append(mock.calls.ListReleases, callInfo)
+	mock.lockListReleases.Unlock()
+	if mock.ListReleasesFunc == nil {
+		var (
+			releasesOut []domain.Release
+			errOut      error
+		)
+		return releasesOut, errOut
+	}
+	return mock.ListReleasesFunc(ctx, environmentID, limit)
+}
+
+// ListReleasesCalls gets all the calls that were made to ListReleases.
+// Check the length with:
+//
+//	len(mockedStore.ListReleasesCalls())
+func (mock *StoreMock) ListReleasesCalls() []struct {
+	Ctx           context.Context
+	EnvironmentID string
+	Limit         int
+} {
+	var calls []struct {
+		Ctx           context.Context
+		EnvironmentID string
+		Limit         int
+	}
+	mock.lockListReleases.RLock()
+	calls = mock.calls.ListReleases
+	mock.lockListReleases.RUnlock()
+	return calls
+}
+
 // ListRuns calls ListRunsFunc.
 func (mock *StoreMock) ListRuns(ctx context.Context, environmentID string, limit int) ([]domain.Run, error) {
 	callInfo := struct {
@@ -1978,6 +2294,46 @@ func (mock *StoreMock) ListRunsCalls() []struct {
 	return calls
 }
 
+// ListTokens calls ListTokensFunc.
+func (mock *StoreMock) ListTokens(ctx context.Context, accountID string) ([]domain.Token, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		AccountID string
+	}{
+		Ctx:       ctx,
+		AccountID: accountID,
+	}
+	mock.lockListTokens.Lock()
+	mock.calls.ListTokens = append(mock.calls.ListTokens, callInfo)
+	mock.lockListTokens.Unlock()
+	if mock.ListTokensFunc == nil {
+		var (
+			tokensOut []domain.Token
+			errOut    error
+		)
+		return tokensOut, errOut
+	}
+	return mock.ListTokensFunc(ctx, accountID)
+}
+
+// ListTokensCalls gets all the calls that were made to ListTokens.
+// Check the length with:
+//
+//	len(mockedStore.ListTokensCalls())
+func (mock *StoreMock) ListTokensCalls() []struct {
+	Ctx       context.Context
+	AccountID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		AccountID string
+	}
+	mock.lockListTokens.RLock()
+	calls = mock.calls.ListTokens
+	mock.lockListTokens.RUnlock()
+	return calls
+}
+
 // SaveBootstrapState calls SaveBootstrapStateFunc.
 func (mock *StoreMock) SaveBootstrapState(ctx context.Context, accountID string, state []byte) error {
 	callInfo := struct {
@@ -2018,6 +2374,49 @@ func (mock *StoreMock) SaveBootstrapStateCalls() []struct {
 	mock.lockSaveBootstrapState.RLock()
 	calls = mock.calls.SaveBootstrapState
 	mock.lockSaveBootstrapState.RUnlock()
+	return calls
+}
+
+// TouchToken calls TouchTokenFunc.
+func (mock *StoreMock) TouchToken(ctx context.Context, id string, at time.Time) error {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+		At  time.Time
+	}{
+		Ctx: ctx,
+		ID:  id,
+		At:  at,
+	}
+	mock.lockTouchToken.Lock()
+	mock.calls.TouchToken = append(mock.calls.TouchToken, callInfo)
+	mock.lockTouchToken.Unlock()
+	if mock.TouchTokenFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.TouchTokenFunc(ctx, id, at)
+}
+
+// TouchTokenCalls gets all the calls that were made to TouchToken.
+// Check the length with:
+//
+//	len(mockedStore.TouchTokenCalls())
+func (mock *StoreMock) TouchTokenCalls() []struct {
+	Ctx context.Context
+	ID  string
+	At  time.Time
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+		At  time.Time
+	}
+	mock.lockTouchToken.RLock()
+	calls = mock.calls.TouchToken
+	mock.lockTouchToken.RUnlock()
 	return calls
 }
 

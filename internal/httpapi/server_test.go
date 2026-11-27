@@ -57,7 +57,7 @@ func newEnv(t *testing.T) *env {
 	}}
 	store := memory.New()
 	catalog := domain.Catalog{
-		ID: "aws-serverless", Name: "AWS Serverless", Cloud: "aws", Bootstrap: domain.Bootstrap{Project: "serverless", BaseEnvironment: "production"},
+		ID: "aws-serverless", Name: "AWS Serverless", Cloud: "aws", Bootstrap: domain.Bootstrap{Project: "serverless", BaseEnvironment: "production", AppComponent: "api", ImageParam: "image"},
 		Platforms: []domain.PlatformType{{ID: "aws-iam-role", Label: "AWS IAM Role", Schema: map[string]any{"required": []any{"arn"}, "properties": map[string]any{"arn": map[string]any{"title": "Role ARN"}}}}},
 	}
 	svc, err := domain.NewService(domain.Options{
@@ -85,6 +85,11 @@ type result struct {
 
 func (e *env) do(t *testing.T, method, path string, body any, signedIn bool) result {
 	t.Helper()
+	return e.doWith(t, method, path, body, signedIn, "")
+}
+
+func (e *env) doWith(t *testing.T, method, path string, body any, signedIn bool, authorization string) result {
+	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
 		require.NoError(t, json.NewEncoder(&buf).Encode(body))
@@ -93,6 +98,9 @@ func (e *env) do(t *testing.T, method, path string, body any, signedIn bool) res
 	require.NoError(t, err)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 	if signedIn {
 		req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: e.sessions.Issue(e.user.ID)})
@@ -189,4 +197,57 @@ func TestUIServesAssetsAndFallsBackToIndex(t *testing.T) {
 	assert.Contains(t, r.Header.Get("Cache-Control"), "immutable")
 	r = e.do(t, http.MethodGet, "/api/v1/nothing", nil, true)
 	assert.Equal(t, http.StatusNotFound, r.StatusCode)
+}
+
+func TestDeployTokensReleaseOverBearerAuth(t *testing.T) {
+	e := newEnv(t)
+	for _, step := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPost, "/api/v1/account", map[string]any{"name": "Cory"}},
+		{http.MethodPost, "/api/v1/account/install", map[string]any{"catalogId": "aws-serverless"}},
+		{http.MethodPost, "/api/v1/account/platforms/aws-iam-role", map[string]any{"payload": map[string]any{"arn": "arn:aws:iam::1:role/x"}}},
+		{http.MethodPost, "/api/v1/environments", map[string]any{"slug": "production"}},
+	} {
+		r := e.do(t, step.method, step.path, step.body, true)
+		require.Less(t, r.StatusCode, 300, "%s %s: %s", step.method, step.path, r.Body)
+	}
+
+	r := e.do(t, http.MethodPost, "/api/v1/account/tokens", map[string]any{"name": "github"}, true)
+	require.Equal(t, http.StatusCreated, r.StatusCode, string(r.Body))
+	var created struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(r.Body, &created))
+	bearer := "Bearer " + created.Token
+
+	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v1", "description": "abc"}, false, bearer)
+	require.Equal(t, http.StatusAccepted, r.StatusCode, string(r.Body))
+	assert.Contains(t, string(r.Body), `"number":1`)
+	assert.Contains(t, string(r.Body), `"requestedBy":"github"`)
+	require.Len(t, e.platform.DeployInstanceCalls(), 1)
+	assert.Equal(t, "app:v1", e.platform.DeployInstanceCalls()[0].Params["image"])
+
+	r = e.doWith(t, http.MethodGet, "/api/v1/environments/production/releases", nil, false, bearer)
+	require.Equal(t, http.StatusOK, r.StatusCode)
+	assert.Contains(t, string(r.Body), `"image":"app:v1"`)
+
+	r = e.do(t, http.MethodGet, "/api/v1/account/tokens", nil, true)
+	require.Equal(t, http.StatusOK, r.StatusCode)
+	assert.NotContains(t, string(r.Body), created.Token, "the secret is shown once")
+	assert.Contains(t, string(r.Body), `"lastUsedAt"`)
+
+	r = e.doWith(t, http.MethodGet, "/api/v1/environments", nil, false, bearer)
+	assert.Equal(t, http.StatusUnauthorized, r.StatusCode, "a deploy token only releases")
+	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v2"}, false, "Bearer rs_wrong")
+	assert.Equal(t, http.StatusUnauthorized, r.StatusCode)
+	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v2"}, false, "Basic abc")
+	assert.Equal(t, http.StatusUnauthorized, r.StatusCode)
+
+	r = e.do(t, http.MethodDelete, "/api/v1/account/tokens/"+created.ID, nil, true)
+	assert.Equal(t, http.StatusNoContent, r.StatusCode)
+	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v2"}, false, bearer)
+	assert.Equal(t, http.StatusUnauthorized, r.StatusCode, "a revoked token stops working")
 }

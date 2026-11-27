@@ -38,7 +38,12 @@ func presetSchema(names ...string) map[string]any {
 	for _, n := range names {
 		examples = append(examples, map[string]any{"__name": n, "size": strings.ToLower(n)})
 	}
-	return map[string]any{"examples": examples}
+	return map[string]any{
+		"examples": examples,
+		"properties": map[string]any{
+			"image_uri": map[string]any{"type": "string", "pattern": `^[a-z0-9./:@_-]+$`, "message": map[string]any{"pattern": "use a lowercase image reference"}},
+		},
+	}
 }
 
 func (w *tenantWorld) environment(id string) *domain.PlatformEnvironment {

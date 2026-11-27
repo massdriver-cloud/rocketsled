@@ -3,6 +3,8 @@ import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, use
 import { api, ApiError, timeAgo } from "../api";
 import type { Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin } from "../types";
 import { Highlights, Loading, Notice } from "../components/ui";
+import { Releases } from "../components/Releases";
+import { Tokens } from "../components/Tokens";
 import "./tenant.css";
 
 const defaultCopy: Record<string, string> = {
@@ -176,6 +178,7 @@ function Session() {
           <Route path="/" element={<Apps />} />
           <Route path="/new" element={<NewApp />} />
           <Route path="/apps/:id" element={<AppPage />} />
+          <Route path="/tokens" element={<Tokens />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -200,6 +203,7 @@ function Header({ me }: { me: Me }) {
           <NavLink to="/" end>
             {copy("environments")}
           </NavLink>
+          <NavLink to="/tokens">Deploy tokens</NavLink>
         </nav>
         <span className="t-spacer" />
         <span className="t-user">{me.user.login}</span>
@@ -754,6 +758,8 @@ function AppPage() {
         </div>
       </div>
 
+      {view.release && <Releases env={app} component={view.release.component} onRelease={refresh} />}
+
       {rt && rt.addons.length > 0 && <AddonsSection app={app} addons={rt.addons} disabled={busy || deleting} onChange={(fn) => act(fn)} />}
 
       <div className="section">
@@ -766,7 +772,7 @@ function AppPage() {
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">#{r.number}</td>
-                  <td>{r.trigger === "create" ? "Created" : r.trigger === "addon" ? r.message : copy("deploy")}</td>
+                  <td>{r.trigger === "create" ? "Created" : r.trigger === "deploy" ? copy("deploy") : r.message}</td>
                   <td>
                     <State state={r.status === "succeeded" ? "running" : r.status === "failed" ? "failed" : "deploying"} />
                   </td>

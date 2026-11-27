@@ -44,6 +44,9 @@ no cloud account. With `massdriver.account_mode: tenant`:
   redeployed so they pick up or drop the connection.
 - `paas.pinned` (and `runtimes[].pinned`) set params over every preset;
   `{{environment_id}}`, `{{app}}` and `{{runtime}}` are filled in.
+- A runtime's `app_component` and `image_param` say where releases land. A build
+  releases an image with a deploy token; the image wins over pinned params from
+  then on, so a pinned welcome image only shows until the first release.
 - `paas.plans` labels preset cards with a price and a sentence.
 - `paas.highlights` lists, per resource type, the payload fields the app page shows
   and their order (`website: [url]`). Other types show their first five fields in
@@ -95,8 +98,9 @@ offers just that platform.
 
 ## REST API
 
-All routes under `/api/v1` require the session cookie set by the OAuth flow; routes that
-need an account return 412 until signup is complete.
+All routes under `/api/v1` require the session cookie set by the sign-in flow; routes that
+need an account return 412 until signup is complete. The release routes also take a
+deploy token as a bearer token, which is good for nothing else.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -110,6 +114,9 @@ need an account return 412 until signup is complete.
 | GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`), returns 202 |
 | GET, DELETE | `/api/v1/environments/{id}` | Live status with resources and runs; destroy |
 | POST | `/api/v1/environments/{id}/deploys` | Redeploy, returns 202 |
+| GET, POST | `/api/v1/account/tokens` | Deploy tokens; create one (`{name}`), its secret is returned once |
+| DELETE | `/api/v1/account/tokens/{id}` | Revoke a deploy token |
+| GET, POST | `/api/v1/environments/{id}/releases` | Releases, newest first; release an image (`{image, description}`), returns 202. `{id}` may be the slug. Accepts `Authorization: Bearer <deploy token>` |
 | POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
 | DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
 

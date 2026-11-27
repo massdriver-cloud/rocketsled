@@ -337,7 +337,6 @@ func (s *Service) redeployTenant(ctx context.Context, platform Platform, env *En
 		return err
 	}
 	rt := s.runtimeConfig(env.Runtime)
-	vars := appVars(env, rt)
 	params := map[string]map[string]any{}
 	var ro *RuntimeOffer
 	if offer, err := s.Offer(ctx); err == nil {
@@ -354,7 +353,7 @@ func (s *Service) redeployTenant(ctx context.Context, platform Platform, env *En
 			current = ro.presetParams(pi.ComponentSlug, preset)
 		}
 		// Pinned params win again, so a redeploy picks up what the operator changed.
-		params[pi.ComponentSlug] = MergeParams(current, s.pinnedFor(rt, pi.ComponentSlug, vars))
+		params[pi.ComponentSlug] = s.componentParams(env, rt, pi.ComponentSlug, current)
 	}
 	var links []Link
 	if ro != nil {
@@ -754,11 +753,30 @@ func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 				}
 			}
 		}
+		env.Image = releasedImage(pe, rt, s.pinnedFor(rt, rt.AppComponent, appVars(env, rt)))
 		if err := s.store.CreateEnvironment(ctx, env); err != nil {
 			s.log.Warn("adopting environment", "environment", id, "err", err)
 		}
 	}
 	return nil
+}
+
+// releasedImage is the app component's image when it isn't the one pinned,
+// which means a release put it there.
+func releasedImage(live *PlatformEnvironment, rt Runtime, pinned map[string]any) string {
+	if rt.AppComponent == "" || rt.ImageParam == "" {
+		return ""
+	}
+	for _, pi := range live.Instances {
+		if pi.ComponentSlug != rt.AppComponent {
+			continue
+		}
+		image, _ := pi.Params[rt.ImageParam].(string)
+		if image != "" && image != pinned[rt.ImageParam] {
+			return image
+		}
+	}
+	return ""
 }
 
 // ReapExpired removes apps older than the TTL and deletes the ones whose

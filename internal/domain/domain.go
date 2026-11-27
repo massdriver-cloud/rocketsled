@@ -149,8 +149,10 @@ type Environment struct {
 	EnvironmentID string            `json:"environmentId"`
 	Presets       map[string]string `json:"presets"`
 	// Runtime and Addons are what a tenant-mode customer picked.
-	Runtime   string           `json:"runtime,omitempty"`
-	Addons    []string         `json:"addons,omitempty"`
+	Runtime string   `json:"runtime,omitempty"`
+	Addons  []string `json:"addons,omitempty"`
+	// Image is the last image released to the app component; it wins over pinned params.
+	Image     string           `json:"image,omitempty"`
 	State     EnvironmentState `json:"state"`
 	CreatedBy string           `json:"createdBy"`
 	CreatedAt time.Time        `json:"createdAt"`
@@ -164,7 +166,8 @@ const (
 	TriggerCreate RunTrigger = "create"
 	TriggerDeploy RunTrigger = "deploy"
 	// TriggerAddon adds or removes an add-on; the run's message says which.
-	TriggerAddon RunTrigger = "addon"
+	TriggerAddon   RunTrigger = "addon"
+	TriggerRelease RunTrigger = "release"
 )
 
 // RunStatus is Rocketsled's record of a deploy request.

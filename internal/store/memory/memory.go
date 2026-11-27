@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
 )
@@ -21,6 +22,9 @@ type Store struct {
 	states       map[string][]byte
 	environments map[string]domain.Environment
 	runs         map[string]domain.Run
+	tokens       map[string]domain.Token
+	tokenHashes  map[string]string
+	releases     map[string]domain.Release
 }
 
 var _ domain.Store = (*Store)(nil)
@@ -34,6 +38,9 @@ func New() *Store {
 		states:       map[string][]byte{},
 		environments: map[string]domain.Environment{},
 		runs:         map[string]domain.Run{},
+		tokens:       map[string]domain.Token{},
+		tokenHashes:  map[string]string{},
+		releases:     map[string]domain.Release{},
 	}
 }
 
@@ -213,6 +220,11 @@ func (s *Store) DeleteEnvironment(_ context.Context, id string) error {
 			delete(s.runs, rid)
 		}
 	}
+	for rid, r := range s.releases {
+		if r.EnvironmentID == id {
+			delete(s.releases, rid)
+		}
+	}
 	return nil
 }
 
@@ -239,6 +251,86 @@ func (s *Store) ListRuns(_ context.Context, environmentID string, limit int) ([]
 	defer s.mu.RUnlock()
 	out := []domain.Run{}
 	for _, r := range s.runs {
+		if r.EnvironmentID == environmentID {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Number > out[b].Number })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *Store) CreateToken(_ context.Context, t *domain.Token, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokens[t.ID] = *t
+	s.tokenHashes[hash] = t.ID
+	return nil
+}
+
+func (s *Store) ListTokens(_ context.Context, accountID string) ([]domain.Token, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Token{}
+	for _, t := range s.tokens {
+		if t.AccountID == accountID {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].CreatedAt.Before(out[b].CreatedAt) })
+	return out, nil
+}
+
+func (s *Store) GetTokenByHash(_ context.Context, hash string) (*domain.Token, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.tokens[s.tokenHashes[hash]]
+	if !ok {
+		return nil, fmt.Errorf("%w: deploy token", domain.ErrNotFound)
+	}
+	return &t, nil
+}
+
+func (s *Store) TouchToken(_ context.Context, id string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tokens[id]; ok {
+		t.LastUsedAt = &at
+		s.tokens[id] = t
+	}
+	return nil
+}
+
+func (s *Store) DeleteToken(_ context.Context, accountID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tokens[id]; !ok || t.AccountID != accountID {
+		return fmt.Errorf("%w: deploy token %s", domain.ErrNotFound, id)
+	}
+	delete(s.tokens, id)
+	for h, tid := range s.tokenHashes {
+		if tid == id {
+			delete(s.tokenHashes, h)
+		}
+	}
+	return nil
+}
+
+func (s *Store) CreateRelease(_ context.Context, r *domain.Release) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.releases[r.ID] = *r
+	return nil
+}
+
+// ListReleases returns the newest releases first.
+func (s *Store) ListReleases(_ context.Context, environmentID string, limit int) ([]domain.Release, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Release{}
+	for _, r := range s.releases {
 		if r.EnvironmentID == environmentID {
 			out = append(out, r)
 		}

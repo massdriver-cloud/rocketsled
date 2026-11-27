@@ -1,4 +1,18 @@
-import type { Meta, Offer, User, Account, Catalog, Environment, EnvironmentView, Me, PlatformRequirement, ProjectView, Run } from "./types";
+import type {
+  DeployToken,
+  Release,
+  Meta,
+  Offer,
+  User,
+  Account,
+  Catalog,
+  Environment,
+  EnvironmentView,
+  Me,
+  PlatformRequirement,
+  ProjectView,
+  Run,
+} from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -54,6 +68,12 @@ export const api = {
   environment: (id: string) => request<EnvironmentView>(`/api/v1/environments/${encodeURIComponent(id)}`),
   deploy: (id: string) => request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/deploys`, { method: "POST" }),
   destroy: (id: string) => request<Environment>(`/api/v1/environments/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  tokens: () => request<DeployToken[]>("/api/v1/account/tokens"),
+  createToken: (name: string) => request<DeployToken & { token: string }>("/api/v1/account/tokens", { method: "POST", body: JSON.stringify({ name }) }),
+  revokeToken: (id: string) => request<void>(`/api/v1/account/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  releases: (id: string) => request<Release[]>(`/api/v1/environments/${encodeURIComponent(id)}/releases`),
+  release: (id: string, image: string, description: string) =>
+    request<Release>(`/api/v1/environments/${encodeURIComponent(id)}/releases`, { method: "POST", body: JSON.stringify({ image, description }) }),
   addAddon: (id: string, component: string, preset: string) =>
     request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/addons`, { method: "POST", body: JSON.stringify({ component, preset }) }),
   removeAddon: (id: string, component: string) =>

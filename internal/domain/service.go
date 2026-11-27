@@ -978,6 +978,8 @@ type EnvironmentView struct {
 	Runs        []Run                `json:"runs"`
 	// Gone is true when a decommissioned environment has been fully removed.
 	Gone bool `json:"gone"`
+	// Release says where released images land, when the environment takes them.
+	Release *ReleaseTarget `json:"release,omitempty"`
 }
 
 // EnvironmentStatus returns live state, refreshing run statuses from the
@@ -992,6 +994,9 @@ func (s *Service) EnvironmentStatus(ctx context.Context, account *Account, id st
 		return nil, err
 	}
 	view := &EnvironmentView{Environment: *env, Runs: []Run{}}
+	if target, err := s.releaseTarget(account, env); err == nil {
+		view.Release = target
+	}
 	live, err := platform.GetEnvironment(ctx, env.EnvironmentID)
 	if err != nil {
 		if env.State == EnvironmentStateDecommissioning && errors.Is(err, ErrNotFound) {

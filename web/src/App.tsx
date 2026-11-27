@@ -11,6 +11,7 @@ import { Overview } from "./pages/Overview";
 import { Environments } from "./pages/Environments";
 import { NewEnvironment } from "./pages/NewEnvironment";
 import { EnvironmentDetail } from "./pages/EnvironmentDetail";
+import { Tokens } from "./components/Tokens";
 
 // Session loads the signed-in user and account once, signs new users up, and
 // routes anyone who has not finished setup to the Start flow.
@@ -65,6 +66,7 @@ function Session() {
         <Route path="/environments" element={<Environments />} />
         <Route path="/environments/new" element={<NewEnvironment />} />
         <Route path="/environments/:id" element={<EnvironmentDetail />} />
+        <Route path="/tokens" element={<Tokens />} />
         <Route path="/credentials" element={<Credentials account={me.account} onAccount={onAccount} standalone />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
