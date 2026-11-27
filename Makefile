@@ -8,7 +8,7 @@ GOLANGCI_VERSION := v2.13.2
 export PATH := $(shell $(GO) env GOROOT)/bin:$(PATH)
 GOLANGCI ?= $(shell test -x bin/golangci-lint && echo bin/golangci-lint || echo golangci-lint)
 
-.PHONY: all build ui ui-dev run providers test lint lint-go lint-ui lint-tool fmt fmt-check check hooks generate tidy clean docker
+.PHONY: all build ui ui-dev run providers test lint lint-go lint-ui lint-tool fmt fmt-check fmt-check-go fmt-check-ui check hooks generate tidy clean docker
 
 all: ui build
 
@@ -45,8 +45,13 @@ fmt:
 	$(GOLANGCI) fmt ./...
 	cd $(UI_DIR) && pnpm format
 
-fmt-check:
+fmt-check: fmt-check-go fmt-check-ui
+
+fmt-check-go:
+	@command -v $(GOLANGCI) >/dev/null || { echo "$(GOLANGCI) not found; run make lint-tool"; exit 1; }
 	@test -z "$$($(GOLANGCI) fmt --diff ./... 2>&1)" || { $(GOLANGCI) fmt --diff ./...; echo "run make fmt"; exit 1; }
+
+fmt-check-ui:
 	cd $(UI_DIR) && pnpm format:check
 
 # Everything CI checks, in the order that fails fastest.
@@ -56,6 +61,7 @@ check: fmt-check
 	@cmp -s bin/mocks.go.before internal/domain/mocks/mocks.go || { echo "the mocks were stale and are regenerated now; commit them"; exit 1; }
 	$(GO) mod tidy -diff
 	$(MAKE) lint test
+	cd $(UI_DIR) && pnpm build
 
 hooks:
 	git config core.hooksPath .githooks

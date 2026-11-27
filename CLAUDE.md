@@ -2,7 +2,7 @@
 
 ## Before finishing
 
-- `make check` runs everything CI runs: formatting, generated mocks, `go mod tidy`, golangci-lint, eslint, tsc and the tests.
+- `make check` runs everything CI runs: formatting, generated mocks, `go mod tidy`, golangci-lint, eslint, tsc, the tests and the UI build. It compares regenerated mocks with the working tree, so commit them before pushing.
 - `make hooks` once per clone: pre-commit checks formatting and lint, pre-push runs `make check`.
 - `make fmt` fixes formatting. Edits made through Claude Code are formatted by `.claude/hooks/format.sh`.
 - `make lint-tool` builds the pinned golangci-lint into `bin/` when the one on PATH is too old for `go.mod`.

@@ -3,7 +3,7 @@ set -e
 staged=$(git diff --cached --name-only --diff-filter=ACMR)
 [ -z "$staged" ] && exit 0
 if echo "$staged" | grep -qE '\.go$|^go\.(mod|sum)$'; then
-	make --no-print-directory fmt-check lint-go
+	make --no-print-directory fmt-check-go lint-go
 fi
 if echo "$staged" | grep -q '^web/'; then
 	(cd web && pnpm --silent format:check && pnpm --silent lint && pnpm --silent typecheck)
