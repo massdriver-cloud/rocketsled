@@ -572,7 +572,7 @@ function AppPage() {
   if (!view) return <Loading />;
   const { environment: app, platform, runs } = view;
   const instances = platform?.instances ?? [];
-  const links = appLinks(instances);
+  const links = app.state === "running" ? appLinks(instances) : [];
   const deleting = app.state === "decommissioning";
 
   return (

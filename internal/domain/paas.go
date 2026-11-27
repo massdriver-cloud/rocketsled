@@ -348,6 +348,12 @@ var (
 // deployInLayers deploys producers before the components linked to them,
 // waiting for each layer to provision, so a consumer reads a real connection.
 func (s *Service) deployInLayers(ctx context.Context, platform Platform, envID string, params map[string]map[string]any, links []Link, message string) error {
+	return s.deployLayers(ctx, platform, envID, params, links, message, false)
+}
+
+// deployLayers with resuming set carries on past a component Massdriver won't
+// deploy again, which is one a previous server already started.
+func (s *Service) deployLayers(ctx context.Context, platform Platform, envID string, params map[string]map[string]any, links []Link, message string, resuming bool) error {
 	remaining := map[string]bool{}
 	for slug := range params {
 		remaining[slug] = true
@@ -373,7 +379,10 @@ func (s *Service) deployInLayers(ctx context.Context, platform Platform, envID s
 		slices.Sort(layer)
 		for _, slug := range layer {
 			if err := platform.DeployInstance(ctx, envID+"-"+slug, params[slug], message); err != nil {
-				return fmt.Errorf("deploy %s: %w", slug, err)
+				if !resuming {
+					return fmt.Errorf("deploy %s: %w", slug, err)
+				}
+				s.log.Info("resume: leaving a deploy already under way", "instance", envID+"-"+slug, "err", err)
 			}
 		}
 		if err := s.waitProvisioned(ctx, platform, envID, layer); err != nil {
@@ -586,7 +595,7 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 		envID, links := e.ID, ro.links
 		s.log.Info("resume: finishing an interrupted app", "environment", envID, "components", len(params))
 		s.runAsync(func() {
-			if err := s.deployInLayers(context.Background(), platform, envID, params, links, "Resumed after a restart"); err != nil {
+			if err := s.deployLayers(context.Background(), platform, envID, params, links, "Resumed after a restart", true); err != nil {
 				s.log.Warn("resume", "environment", envID, "err", err)
 			}
 		})
