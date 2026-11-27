@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -439,8 +440,9 @@ type PlatformRequirement struct {
 	Satisfied  bool         `json:"satisfied"`
 }
 
-// PlatformRequirements lists the credentials the installed catalog needs.
-func (s *Service) PlatformRequirements(account *Account) ([]PlatformRequirement, error) {
+// PlatformRequirements lists the credentials the installed catalog needs, with
+// instructions written for this account.
+func (s *Service) PlatformRequirements(ctx context.Context, account *Account) ([]PlatformRequirement, error) {
 	if account.CatalogID == "" {
 		return []PlatformRequirement{}, nil
 	}
@@ -448,10 +450,15 @@ func (s *Service) PlatformRequirements(account *Account) ([]PlatformRequirement,
 	if err != nil {
 		return nil, err
 	}
+	_, cred, err := s.platformFor(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	vars := instructionVarsFor(account, cred)
 	out := make([]PlatformRequirement, 0, len(catalog.Platforms))
 	for _, p := range catalog.Platforms {
 		id := account.Platforms[p.ID]
-		out = append(out, PlatformRequirement{Type: p, ResourceID: id, Satisfied: id != ""})
+		out = append(out, PlatformRequirement{Type: renderPlatformType(p, vars), ResourceID: id, Satisfied: id != ""})
 	}
 	return out, nil
 }
@@ -475,6 +482,7 @@ func (s *Service) ProvidePlatform(ctx context.Context, account *Account, typeID,
 	if ptype == nil {
 		return nil, Invalid("type", "the %s catalog does not use %q", catalog.Name, typeID)
 	}
+	payload = withSchemaDefaults(ptype.Schema, payload)
 	if err := validateAgainstSchema(ptype.Schema, payload); err != nil {
 		return nil, err
 	}
@@ -552,12 +560,72 @@ func validateAgainstSchema(schema, payload map[string]any) error {
 			return Invalid(key, "%s is required", title)
 		}
 	}
-	for key := range payload {
-		if _, ok := props[key]; !ok && len(props) > 0 {
-			return Invalid(key, "unexpected field")
+	for key, v := range payload {
+		prop, ok := props[key].(map[string]any)
+		if !ok {
+			if len(props) > 0 {
+				return Invalid(key, "unexpected field")
+			}
+			continue
+		}
+		if v == nil || v == "" {
+			continue
+		}
+		// YAML schemas and JSON payloads decode numbers to different Go types.
+		allowed, titles := choices(prop)
+		if len(allowed) > 0 && !slices.ContainsFunc(allowed, func(a any) bool { return fmt.Sprint(a) == fmt.Sprint(v) }) {
+			return Invalid(key, "choose one of %s", strings.Join(titles, ", "))
 		}
 	}
 	return nil
+}
+
+// choices lists the values a oneOf of consts or an enum allows, with their labels.
+func choices(prop map[string]any) ([]any, []string) {
+	var allowed []any
+	var titles []string
+	if oneOf, ok := prop["oneOf"].([]any); ok {
+		for _, o := range oneOf {
+			m, ok := o.(map[string]any)
+			if !ok {
+				return nil, nil
+			}
+			c, ok := m["const"]
+			if !ok {
+				return nil, nil
+			}
+			title, _ := m["title"].(string)
+			if title == "" {
+				title = fmt.Sprint(c)
+			}
+			allowed, titles = append(allowed, c), append(titles, title)
+		}
+		return allowed, titles
+	}
+	if enum, ok := prop["enum"].([]any); ok {
+		for _, e := range enum {
+			allowed, titles = append(allowed, e), append(titles, fmt.Sprint(e))
+		}
+	}
+	return allowed, titles
+}
+
+// withSchemaDefaults fills the schema's defaults for fields the payload leaves out.
+func withSchemaDefaults(schema, payload map[string]any) map[string]any {
+	props, _ := schema["properties"].(map[string]any)
+	out := make(map[string]any, len(payload)+len(props))
+	maps.Copy(out, payload)
+	for key, p := range props {
+		prop, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		def, hasDefault := prop["default"]
+		if v, present := out[key]; hasDefault && (!present || v == nil || v == "") {
+			out[key] = def
+		}
+	}
+	return out
 }
 
 // --- project -----------------------------------------------------------------
@@ -578,7 +646,7 @@ func (s *Service) Project(ctx context.Context, account *Account) (*ProjectView, 
 	if err != nil {
 		return nil, err
 	}
-	platform, _, err := s.platformFor(ctx, account)
+	platform, cred, err := s.platformFor(ctx, account)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +661,7 @@ func (s *Service) Project(ctx context.Context, account *Account) (*ProjectView, 
 	if envs == nil {
 		envs = []Environment{}
 	}
-	return &ProjectView{Project: project, Catalog: catalog, Environments: envs}, nil
+	return &ProjectView{Project: project, Catalog: renderCatalog(catalog, instructionVarsFor(account, cred)), Environments: envs}, nil
 }
 
 // blueprint loads the project and enriches each component with the bundle presets

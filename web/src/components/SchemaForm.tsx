@@ -43,8 +43,8 @@ export function SchemaForm({ schema, order, value, onChange, errorField, errorMe
                 {p.description}
               </label>
             ) : options ? (
-              <select id={id} value={String(value[key] ?? "")} onChange={(e) => set(e.target.value)}>
-                <option value="">Choose…</option>
+              <select id={id} value={String(value[key] ?? "")} onChange={(e) => set(options.find((o) => String(o.value) === e.target.value)?.value ?? "")}>
+                {p.default === undefined && <option value="">Choose…</option>}
                 {options.map((o) => (
                   <option key={String(o.value)} value={String(o.value)}>
                     {o.label}

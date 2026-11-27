@@ -399,7 +399,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePlatforms(w http.ResponseWriter, r *http.Request) {
-	reqs, err := s.svc.PlatformRequirements(accountFrom(r.Context()))
+	reqs, err := s.svc.PlatformRequirements(r.Context(), accountFrom(r.Context()))
 	if err != nil {
 		s.writeDomainError(w, err)
 		return
