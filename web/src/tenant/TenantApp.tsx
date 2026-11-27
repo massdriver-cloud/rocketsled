@@ -248,7 +248,7 @@ function Apps() {
     api
       .projects()
       .then(setProjects)
-      .catch(() => undefined);
+      .catch((e: ApiError) => setError(e.message));
   }, []);
   useEffect(load, [load]);
 
@@ -284,7 +284,7 @@ function Apps() {
             <div className="section__title">
               <h2>{p.name}</h2>
               <span className="muted small">{runtimeName(offer, p.runtime)}</span>
-              {inProject.length === 0 && (
+              {all !== null && inProject.length === 0 && (
                 <button className="linkbtn" onClick={() => removeProject(p)}>
                   Delete {copy("project")}
                 </button>
@@ -522,6 +522,7 @@ function NewApp() {
                   setAddons([]);
                   setPresets({});
                   setStage("");
+                  setProject("");
                 }}
               >
                 <span className="t-runtime__mark" aria-hidden="true">

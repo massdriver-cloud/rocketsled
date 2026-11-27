@@ -135,7 +135,7 @@ deploy token as a bearer token, which is good for nothing else.
 | GET | `/api/v1/account` | Account status and install log |
 | GET, POST | `/api/v1/account/platforms[/{type}]` | Credential requirements; provide one (`{name, payload}`) |
 | GET | `/api/v1/project` | Project, components with presets, environments |
-| GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`; tenant mode adds `runtime`, `addons`, `stage`), returns 202 |
+| GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`; tenant mode adds `runtime`, `addons`, `stage`, and `app` for a runtime with app projects), returns 202 |
 | GET, DELETE | `/api/v1/environments/{id}` | Live status with resources and runs; destroy |
 | POST | `/api/v1/environments/{id}/deploys` | Redeploy, returns 202 |
 | GET, POST | `/api/v1/account/tokens` | Deploy tokens; create one (`{name}`), its secret is returned once |
@@ -143,7 +143,7 @@ deploy token as a bearer token, which is good for nothing else.
 | GET, POST | `/api/v1/environments/{id}/releases` | Releases, newest first; release an image (`{image, description}`), returns 202. `{id}` may be the slug. Accepts `Authorization: Bearer <deploy token>` |
 | GET, POST | `/api/v1/apps` | Tenant mode: apps with their own project and their environments; make one (`{name, runtime}`) |
 | DELETE | `/api/v1/apps/{id}` | Tenant mode: delete an app's project once it has no environments |
-| PUT, DELETE | `/api/v1/previews/{name}` | Tenant mode: make a preview and release to it (`{image, description, runtime}`), or remove it. Takes a deploy token, returns 202 |
+| PUT, DELETE | `/api/v1/previews/{name}` | Tenant mode: make a preview and release to it (`{image, description, runtime, app}`), or remove it (`?app=` for a preview inside an app). Takes a deploy token, returns 202 |
 | POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
 | DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
 | GET, PUT | `/api/v1/environments/{id}/domains` | Tenant mode: custom domains with the CNAME each needs; replace them (`{domains}`), returns 202 |

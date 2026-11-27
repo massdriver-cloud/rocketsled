@@ -425,6 +425,8 @@ func (p *PaaS) validate() []error {
 	for i, r := range p.Runtimes {
 		if r.ID == "" || r.Project == "" || r.Template == "" {
 			errs = append(errs, fmt.Errorf("paas.runtimes[%d] needs id, project and template", i))
+		} else if !runtimeID.MatchString(r.ID) {
+			errs = append(errs, fmt.Errorf("paas.runtimes[%d].id must be lowercase letters, digits and hyphens, got %q", i, r.ID))
 		}
 		if seen[r.ID] {
 			errs = append(errs, fmt.Errorf("paas.runtimes: %q is listed twice", r.ID))
@@ -451,6 +453,8 @@ func (p *PaaS) validate() []error {
 	}
 	return append(errs, p.Pipeline.validate()...)
 }
+
+var runtimeID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 var stageID = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
 

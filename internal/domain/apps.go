@@ -41,7 +41,7 @@ func (s *Service) appProjects() bool {
 
 // The runtime is written into an app project's description next to its owner,
 // so the server can adopt its apps after losing its database.
-var runtimePattern = regexp.MustCompile(`\[runtime ([a-z0-9-]+)\]`)
+var runtimePattern = regexp.MustCompile(`\[runtime ([^\]\s]+)\]`)
 
 func describeAppProject(login, userID, runtime string) string {
 	return fmt.Sprintf("Made in Rocketsled for %s [runtime %s] [owner %s]", login, runtime, userID)
@@ -70,6 +70,11 @@ func (s *Service) CreateApp(ctx context.Context, user *User, account *Account, i
 	}
 	platform := s.platforms(s.shared)
 	existing, err := platform.GetProject(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		if err := s.checkAppLimits(ctx, platform, account); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case err == nil:
 		if ownerOf(existing.Description) != account.OwnerUserID {
@@ -100,6 +105,32 @@ func (s *Service) CreateApp(ctx context.Context, user *User, account *Account, i
 		return s.store.GetApp(ctx, app.ID)
 	}
 	return app, nil
+}
+
+// checkAppLimits holds app projects to the same caps as apps: a customer
+// can't make more projects than they may have environments.
+func (s *Service) checkAppLimits(ctx context.Context, platform Platform, account *Account) error {
+	l := s.paas.Limits
+	if l.AppsPerPerson == 0 && l.TotalApps == 0 {
+		return nil
+	}
+	apps, err := s.appsHere(ctx, platform)
+	if err != nil {
+		return err
+	}
+	mine := 0
+	for _, a := range apps {
+		if a.owner == account.OwnerUserID {
+			mine++
+		}
+	}
+	if l.AppsPerPerson > 0 && mine >= l.AppsPerPerson {
+		return fmt.Errorf("%w: you can have %d at a time; delete one first", ErrConflict, l.AppsPerPerson)
+	}
+	if l.TotalApps > 0 && len(apps) >= l.TotalApps {
+		return fmt.Errorf("%w: this demo is full right now; try again later", ErrConflict)
+	}
+	return nil
 }
 
 // copyDefaults shares each default of the runtime's template with the app's
@@ -214,6 +245,12 @@ func (s *Service) DeleteApp(ctx context.Context, account *Account, id string) er
 
 func (s *Service) ownedApp(ctx context.Context, account *Account, id string) (*App, error) {
 	app, err := s.store.GetApp(ctx, id)
+	if errors.Is(err, ErrNotFound) && s.appProjects() {
+		// The store may have lost an app Massdriver still has.
+		if _, listErr := s.ListApps(ctx, account); listErr == nil {
+			app, err = s.store.GetApp(ctx, id)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

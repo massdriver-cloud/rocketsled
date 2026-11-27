@@ -240,10 +240,31 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 		order[a.ID] = i
 	}
 	slices.SortStableFunc(ro.Addons, func(a, b OfferedComponent) int { return order[a.Slug] - order[b.Slug] })
+	if rt.AppProjects {
+		if err := sharedOnlyByDefaults(rt, ro, instances); err != nil {
+			return nil, err
+		}
+	}
 	if ro.Stages, ro.Promote, err = s.stageOffer(rt, ro); err != nil {
 		return nil, err
 	}
 	return ro, nil
+}
+
+// sharedOnlyByDefaults refuses a runtime whose shared components reach an
+// app's components through a link: an app's own project gets an undeployed
+// copy of a shared component, so only an environment default reaches it.
+func sharedOnlyByDefaults(rt Runtime, ro *RuntimeOffer, instances map[string]PlatformInstance) error {
+	offered := func(slug string) bool {
+		has := func(c OfferedComponent) bool { return c.Slug == slug }
+		return slices.ContainsFunc(ro.Components, has) || slices.ContainsFunc(ro.Addons, has)
+	}
+	for _, l := range ro.links {
+		if pi, ok := instances[l.From]; ok && strings.EqualFold(pi.Status, "PROVISIONED") && offered(l.To) {
+			return fmt.Errorf("runtime %s gives each app its own project, but its shared %s is linked to %s; share it as an environment default on %s instead", rt.ID, l.From, l.To, templateID(rt))
+		}
+	}
+	return nil
 }
 
 // presetParams are a component's params for a preset, without its label.
@@ -294,6 +315,9 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		if app, err = s.ownedApp(ctx, account, in.App); err != nil {
 			return nil, Invalid("app", "pick one of your apps")
 		}
+		if in.Runtime != "" && in.Runtime != app.Runtime {
+			return nil, Invalid("app", "%s runs %s, not %s", app.Name, app.Runtime, in.Runtime)
+		}
 		in.Runtime = app.Runtime
 	}
 	offer, err := s.Offer(ctx)
@@ -311,6 +335,11 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 			return nil, Invalid("app", "pick the app this environment belongs to")
 		}
 		project, parent = app.ID, app.templateID()
+		// An app adopted after its creation failed part way may still miss
+		// some of the runtime template's defaults; copying is idempotent.
+		if err := s.copyDefaults(ctx, s.platforms(s.shared), templateID(rt), app); err != nil {
+			return nil, err
+		}
 	}
 	stageDefaults := map[string]string{}
 	if in.Stage != "" {

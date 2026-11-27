@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,8 +18,30 @@ func appProjectsPaaS() *domain.PaaS {
 	}
 }
 
-func TestCreateAppMakesAProjectAndCopiesTheTemplateDefaults(t *testing.T) {
+// appHarness drops the registry's link to web: with app projects, shared
+// components reach apps only as environment defaults.
+func appHarness(t *testing.T, paas *domain.PaaS) *tenantHarness {
+	t.Helper()
+	h := newTenantHarness(t, paas)
+	get := h.platform.GetProjectFunc
+	h.platform.GetProjectFunc = func(ctx context.Context, id string) (*domain.Project, error) {
+		p, err := get(ctx, id)
+		if err == nil {
+			p.Links = slices.DeleteFunc(p.Links, func(l domain.Link) bool { return l.From == "registry" })
+		}
+		return p, err
+	}
+	return h
+}
+
+func TestAppProjectsRefuseSharedComponentsLinkedToApps(t *testing.T) {
 	h := newTenantHarness(t, appProjectsPaaS())
+	_, err := h.svc.Offer(context.Background())
+	require.ErrorContains(t, err, "its shared registry is linked to web; share it as an environment default")
+}
+
+func TestCreateAppMakesAProjectAndCopiesTheTemplateDefaults(t *testing.T) {
+	h := appHarness(t, appProjectsPaaS())
 	ctx := context.Background()
 	defaults := map[string][]string{"ruby-template": {"ruby-template-codebase.codebase", "platform-main-cluster.cluster", "res-role"}}
 	h.platform.EnvironmentDefaultsFunc = func(_ context.Context, id string) ([]string, error) { return defaults[id], nil }
@@ -74,7 +97,7 @@ func TestAppRejects(t *testing.T) {
 	_, err := off.svc.CreateApp(ctx, off.user, off.account, domain.CreateAppInput{Name: "shop", Runtime: "ruby"})
 	require.ErrorIs(t, err, domain.ErrNotFound, "a runtime without app projects makes none")
 
-	h := newTenantHarness(t, appProjectsPaaS())
+	h := appHarness(t, appProjectsPaaS())
 	_, err = h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "ruby", Runtime: "ruby"})
 	require.ErrorAs(t, err, &verr, "the runtime's own project is reserved")
 	_, err = h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "My Shop", Runtime: "ruby"})
@@ -93,7 +116,7 @@ func TestAppRejects(t *testing.T) {
 }
 
 func TestDeleteAppOnlyWhenEmpty(t *testing.T) {
-	h := newTenantHarness(t, appProjectsPaaS())
+	h := appHarness(t, appProjectsPaaS())
 	ctx := context.Background()
 	_, err := h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "ruby"})
 	require.NoError(t, err)
@@ -110,7 +133,7 @@ func TestDeleteAppOnlyWhenEmpty(t *testing.T) {
 }
 
 func TestAppsAndTheirEnvironmentsAreAdopted(t *testing.T) {
-	h := newTenantHarness(t, appProjectsPaaS())
+	h := appHarness(t, appProjectsPaaS())
 	ctx := context.Background()
 	_, err := h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "ruby"})
 	require.NoError(t, err)
@@ -130,7 +153,7 @@ func TestAppsAndTheirEnvironmentsAreAdopted(t *testing.T) {
 }
 
 func TestPreviewsLiveInTheirApp(t *testing.T) {
-	h := newTenantHarness(t, appProjectsPaaS())
+	h := appHarness(t, appProjectsPaaS())
 	ctx := context.Background()
 	_, err := h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "ruby"})
 	require.NoError(t, err)
@@ -150,7 +173,7 @@ func TestPreviewsLiveInTheirApp(t *testing.T) {
 func TestRetryingAnAppOnAnotherRuntimeIsRefused(t *testing.T) {
 	paas := appProjectsPaaS()
 	paas.Runtimes = append(paas.Runtimes, domain.Runtime{ID: "node", Name: "Node", Project: "ruby", Template: "template", AppProjects: true})
-	h := newTenantHarness(t, paas)
+	h := appHarness(t, paas)
 	ctx := context.Background()
 	_, err := h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "node"})
 	require.NoError(t, err)
@@ -160,4 +183,25 @@ func TestRetryingAnAppOnAnotherRuntimeIsRefused(t *testing.T) {
 	stored, err := h.store.GetApp(ctx, "shop")
 	require.NoError(t, err)
 	assert.Equal(t, "node", stored.Runtime)
+}
+
+func TestAppsAreCappedAndFoundAfterTheStoreForgetsThem(t *testing.T) {
+	paas := appProjectsPaaS()
+	paas.Limits.AppsPerPerson = 1
+	h := appHarness(t, paas)
+	ctx := context.Background()
+	_, err := h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "ruby"})
+	require.NoError(t, err)
+	_, err = h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "blog", Runtime: "ruby"})
+	require.ErrorIs(t, err, domain.ErrConflict, "projects count against the per-person cap")
+
+	require.NoError(t, h.store.DeleteApp(ctx, "shop"))
+	r, err := h.svc.Preview(ctx, h.user, h.account, "pr1", domain.PreviewInput{Image: "img:1", App: "shop"})
+	require.NoError(t, err, "a build finds the app in Massdriver when the store has forgotten it")
+	assert.Equal(t, "shop-pr1", r.EnvironmentID)
+
+	var verr *domain.ValidationError
+	_, err = h.svc.CreateEnvironment(ctx, h.user, h.account, domain.CreateEnvironmentInput{Slug: "prod", App: "shop", Runtime: "node"})
+	require.ErrorAs(t, err, &verr, "an app's environments run the app's runtime")
+	assert.Equal(t, "app", verr.Field)
 }

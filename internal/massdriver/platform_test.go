@@ -249,3 +249,25 @@ func TestProjectsArePagedAndCreatedFromAnEnvironment(t *testing.T) {
 	require.NoError(t, c3.DeleteProject(context.Background(), "shop"))
 	assert.Equal(t, "shop", last.Variables["id"])
 }
+
+func TestProjectEnvironmentsArePaged(t *testing.T) {
+	var calls []capture
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c capture
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&c))
+		calls = append(calls, c)
+		if len(calls) == 1 {
+			_, _ = w.Write([]byte(`{"data":{"project":{"id":"shop","name":"shop","components":[],"links":[],"environments":{"cursor":{"next":"e2"},"items":[{"id":"shop-template"}]}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"project":{"environments":{"cursor":{"next":null},"items":[{"id":"shop-pr101"}]}}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := massdriver.New(srv.URL, "acme", "md_secret", srv.Client())
+
+	p, err := c.GetProject(context.Background(), "shop")
+	require.NoError(t, err)
+	require.Len(t, p.Environments, 2, "environments past the first page are listed too")
+	assert.Equal(t, "shop-pr101", p.Environments[1].ID)
+	assert.Equal(t, map[string]any{"limit": float64(100), "next": "e2"}, calls[1].Variables["cursor"])
+}

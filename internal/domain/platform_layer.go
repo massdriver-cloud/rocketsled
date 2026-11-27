@@ -150,38 +150,43 @@ func (s *Service) ensurePlatform(ctx context.Context) error {
 			return fmt.Errorf("%s is %s; deploy it, or list %s under paas.platform.components", pi.ID, strings.ToLower(pi.Status), share.Component)
 		}
 		resourceID := pi.ID + "." + share.Field
-		projects, templates := s.runtimeProjects(), make([]string, 0, len(s.paas.Runtimes))
 		for _, rt := range s.paas.Runtimes {
-			templates = append(templates, templateID(rt))
+			if err := shareWith(ctx, platform, resourceID, rt.Project, templateID(rt)); err != nil {
+				return err
+			}
 		}
 		if s.appProjects() {
-			// Apps made before a share was added get it too.
+			// Apps made before a share was added get it too. One broken app
+			// must not hold up the platform every other customer waits on.
 			apps, err := s.appsHere(ctx, platform)
 			if err != nil {
 				return err
 			}
 			for i := range apps {
-				projects = append(projects, apps[i].ID)
-				templates = append(templates, apps[i].templateID())
+				if err := shareWith(ctx, platform, resourceID, apps[i].ID, apps[i].templateID()); err != nil {
+					s.log.Warn("platform: sharing with an app", "app", apps[i].ID, "err", err)
+				}
 			}
 		}
-		for _, project := range projects {
-			if err := platform.GrantResourceToProject(ctx, resourceID, project); err != nil {
-				return fmt.Errorf("share %s with %s: %w", resourceID, project, err)
-			}
-		}
-		for _, tmpl := range templates {
-			pinned, err := platform.EnvironmentDefaults(ctx, tmpl)
-			if err != nil {
-				return fmt.Errorf("read defaults of %s: %w", tmpl, err)
-			}
-			if slices.Contains(pinned, resourceID) {
-				continue
-			}
-			if err := platform.SetEnvironmentDefault(ctx, tmpl, resourceID); err != nil {
-				return fmt.Errorf("pin %s on %s: %w", resourceID, tmpl, err)
-			}
-		}
+	}
+	return nil
+}
+
+// shareWith grants a resource to a project and pins it on the project's
+// template, skipping what is already done.
+func shareWith(ctx context.Context, platform Platform, resourceID, project, template string) error {
+	if err := platform.GrantResourceToProject(ctx, resourceID, project); err != nil {
+		return fmt.Errorf("share %s with %s: %w", resourceID, project, err)
+	}
+	pinned, err := platform.EnvironmentDefaults(ctx, template)
+	if err != nil {
+		return fmt.Errorf("read defaults of %s: %w", template, err)
+	}
+	if slices.Contains(pinned, resourceID) {
+		return nil
+	}
+	if err := platform.SetEnvironmentDefault(ctx, template, resourceID); err != nil {
+		return fmt.Errorf("pin %s on %s: %w", resourceID, template, err)
 	}
 	return nil
 }
