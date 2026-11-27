@@ -65,9 +65,30 @@ bootstrap:
   image_param: image_uri      # the param on that component that takes the image
 ```
 
+### Platforms, resource types and bundles that live elsewhere
+
+A catalog built from an existing bundle repository doesn't have to copy anything
+in. `paths` says where to find each kind, relative to the catalog directory
+(`..` is fine, and so is an absolute path):
+
+```yaml
+paths:
+  platforms: ../../platforms
+  resource_types: ../../resource-types
+  bundles: ../../bundles
+```
+
+A missing key means the catalog's own subdirectory (`platforms/`,
+`resource-types/`, `bundles/`). Each name still gets its own subdirectory under
+the path: `bundles: ../../bundles` with `bundles: [vpc]` publishes `../../bundles/vpc`.
+
+A catalog directory itself can live anywhere: list its parent in the server's
+`catalogs.dirs` (relative to the config file), next to `catalogs.dir`.
+
 The loader refuses a catalog when `id`, `name`, `bootstrap.project` or
-`bootstrap.base_environment` is missing, when `bootstrap/` is missing, or when any
-listed platform, resource type or bundle has no `massdriver.yaml`. `app_component`
+`bootstrap.base_environment` is missing, when `bootstrap/` is missing, when a path
+is not a directory, or when any listed platform, resource type or bundle has no
+`massdriver.yaml`. `app_component`
 and `image_param` are stored but not yet acted on; set them anyway, the app loop is
 the next feature and will read them.
 

@@ -94,7 +94,7 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	catalogs, err := catalog.LoadAll(cfg.Catalogs.Dir)
+	catalogs, err := catalog.LoadAll(cfg.Catalogs.All()...)
 	if err != nil {
 		_ = store.Close()
 		return nil, err

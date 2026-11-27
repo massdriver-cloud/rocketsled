@@ -25,7 +25,8 @@ massdriver:
   # org_creator_token: "${MASSDRIVER_PAT}"       # a personal access token that may create organizations
 
 catalogs:
-  dir: catalogs
+  dir: catalogs                                  # relative to the working directory
+  # dirs: [../aws/examples/rocketsled/catalogs]  # more, relative to this file
   release_channel: stable                        # or development
 
 tools:

@@ -115,3 +115,40 @@ func TestInstallFailureKeepsStateAndLog(t *testing.T) {
 	assert.NotNil(t, res)
 	assert.Contains(t, log.String(), "boom")
 }
+
+func TestInstallPublishesFromPathsOutsideTheCatalog(t *testing.T) {
+	root := t.TempDir()
+	catalogDir := filepath.Join(root, "examples", "paas")
+	require.NoError(t, os.MkdirAll(filepath.Join(catalogDir, "bootstrap"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(catalogDir, "bootstrap", "main.tf"), nil, 0o600))
+	cat := &domain.Catalog{
+		ID: "paas", Name: "PaaS", Dir: catalogDir,
+		Platforms:     []domain.PlatformType{{ID: "aws-iam-role"}},
+		ResourceTypes: []string{"aws-vpc"},
+		Bundles:       []string{"vpc"},
+		Paths: domain.CatalogPaths{
+			Platforms:     filepath.Join(root, "platforms"),
+			ResourceTypes: filepath.Join(root, "resource-types"),
+			Bundles:       filepath.Join(root, "bundles"),
+		},
+		Bootstrap: domain.Bootstrap{Project: "p", BaseEnvironment: "main"},
+	}
+	f := &fake{}
+	var published []string
+	inst := &installer.Installer{Mass: "mass", Tofu: "tofu", Run: func(ctx context.Context, dir string, env []string, out io.Writer, name string, args ...string) error {
+		if name == "mass" && strings.Contains(strings.Join(args, " "), "publish") {
+			published = append(published, dir)
+		}
+		return f.run(ctx, dir, env, out, name, args...)
+	}}
+
+	_, err := inst.Install(context.Background(), domain.InstallRequest{
+		Catalog: cat, Credential: domain.Credential{OrganizationID: "rs-test", APIKey: "k"}, WorkDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		filepath.Join(root, "platforms", "aws-iam-role"),
+		filepath.Join(root, "resource-types", "aws-vpc"),
+		filepath.Join(root, "bundles", "vpc"),
+	}, published)
+}

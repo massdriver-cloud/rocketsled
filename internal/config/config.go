@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,7 +132,11 @@ type Massdriver struct {
 }
 
 type Catalogs struct {
+	// Dir is read relative to the working directory; it defaults to "catalogs"
+	// when Dirs is empty.
 	Dir string `yaml:"dir"`
+	// Dirs are more directories of catalogs, relative to the config file.
+	Dirs []string `yaml:"dirs"`
 	// ReleaseChannel is "stable" or "development" for published bundles.
 	ReleaseChannel string `yaml:"release_channel"`
 }
@@ -188,7 +193,25 @@ func Load(path string) (*Config, error) {
 	if cfg.Skin != "" && !filepath.IsAbs(cfg.Skin) {
 		cfg.Skin = filepath.Join(filepath.Dir(path), cfg.Skin)
 	}
+	base := filepath.Dir(path)
+	if resolved, err := filepath.EvalSymlinks(base); err == nil {
+		base = resolved
+	}
+	for i, d := range cfg.Catalogs.Dirs {
+		if !filepath.IsAbs(d) {
+			cfg.Catalogs.Dirs[i] = filepath.Join(base, d)
+		}
+	}
 	return cfg, nil
+}
+
+// All lists every directory catalogs are loaded from.
+func (c Catalogs) All() []string {
+	out := []string{}
+	if c.Dir != "" {
+		out = append(out, c.Dir)
+	}
+	return append(out, c.Dirs...)
 }
 
 // Parse decodes YAML bytes. See Load.
@@ -221,7 +244,7 @@ func Default() *Config {
 		Database:   Database{Path: "data/rocketsled.db"},
 		DataDir:    "data",
 		Massdriver: Massdriver{URL: masscfg.DefaultURL, AccountMode: "shared"},
-		Catalogs:   Catalogs{Dir: "catalogs", ReleaseChannel: "stable"},
+		Catalogs:   Catalogs{ReleaseChannel: "stable"},
 		Tools:      Tools{Mass: "mass", Tofu: "tofu"},
 	}
 }
@@ -229,6 +252,9 @@ func Default() *Config {
 func (c *Config) applyDefaults() {
 	c.Server.BaseURL = strings.TrimRight(c.Server.BaseURL, "/")
 	c.Massdriver.URL = strings.TrimRight(c.Massdriver.URL, "/")
+	if c.Catalogs.Dir == "" && len(c.Catalogs.Dirs) == 0 {
+		c.Catalogs.Dir = "catalogs"
+	}
 }
 
 // resolveCredential fills the shared credential from the mass CLI profile when
@@ -281,6 +307,9 @@ func (c *Config) Validate() error {
 	case "stable", "development":
 	default:
 		errs = append(errs, fmt.Errorf("catalogs.release_channel must be stable or development, got %q", c.Catalogs.ReleaseChannel))
+	}
+	if slices.Contains(c.Catalogs.Dirs, "") {
+		errs = append(errs, errors.New("catalogs.dirs must not have empty entries"))
 	}
 	if c.Auth.Providers.GitHub == nil && c.Auth.Providers.GitLab == nil && c.Auth.Providers.Dev == nil && c.Auth.Providers.Password == nil && c.Auth.Providers.Open == nil {
 		errs = append(errs, errors.New("auth.providers must configure github, gitlab, open, password or dev"))

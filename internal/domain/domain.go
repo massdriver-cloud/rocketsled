@@ -92,7 +92,16 @@ type Catalog struct {
 	Bundles       []string       `json:"bundles"`
 	Bootstrap     Bootstrap      `json:"bootstrap"`
 	// Dir is the catalog's directory on disk.
-	Dir string `json:"-"`
+	Dir   string       `json:"-"`
+	Paths CatalogPaths `json:"-"`
+}
+
+// CatalogPaths are the directories holding a catalog's platforms, resource types
+// and bundles, one subdirectory per name. They may sit outside the catalog.
+type CatalogPaths struct {
+	Platforms     string
+	ResourceTypes string
+	Bundles       string
 }
 
 // Bootstrap describes what the catalog's bootstrap creates.

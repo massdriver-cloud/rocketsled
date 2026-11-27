@@ -110,3 +110,47 @@ auth:
 	assert.Equal(t, []string{"worker", "db"}, []string{cfg.PaaS.Addons[0].ID, cfg.PaaS.Addons[1].ID})
 	assert.Equal(t, "{{environment_id}}", cfg.PaaS.Pinned["web"]["subdomain"])
 }
+
+func TestCatalogDirs(t *testing.T) {
+	const base = `
+server:
+  session_secret: 0123456789abcdef0123456789abcdef
+massdriver:
+  organization_id: rs-test
+  api_key: md_test
+auth:
+  providers:
+    dev: {login: cory}
+`
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	tests := []struct {
+		name     string
+		catalogs string
+		want     []string
+		wantErr  string
+	}{
+		{name: "default", want: []string{"catalogs"}},
+		{name: "dir only", catalogs: "catalogs: {dir: mine}", want: []string{"mine"}},
+		{
+			name:     "dirs only, relative to the config",
+			catalogs: "catalogs: {dirs: [../aws/catalogs, /abs/catalogs]}",
+			want:     []string{filepath.Join(dir, "../aws/catalogs"), "/abs/catalogs"},
+		},
+		{name: "both", catalogs: "catalogs: {dir: catalogs, dirs: [more]}", want: []string{"catalogs", filepath.Join(dir, "more")}},
+		{name: "empty entry", catalogs: `catalogs: {dirs: [""]}`, wantErr: "catalogs.dirs must not have empty entries"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, "rocketsled.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(base+tt.catalogs+"\n"), 0o600))
+			cfg, err := config.Load(path)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.Catalogs.All())
+		})
+	}
+}

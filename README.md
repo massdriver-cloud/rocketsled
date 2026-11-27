@@ -78,7 +78,10 @@ deploys cost nothing while the product is being designed. Its bootstrap creates 
 components linked.
 
 `catalog.yaml` declares the id, cloud, platforms, publish order and what the bootstrap
-produces. Adding a catalog is adding a directory.
+produces. Adding a catalog is adding a directory. A catalog's `paths` can point at
+platforms, resource types and bundles outside it, and `catalogs.dirs` loads catalogs
+from directories other than `catalogs/`; see
+[docs/CATALOG_AUTHORING.md](docs/CATALOG_AUTHORING.md).
 
 ## REST API
 
