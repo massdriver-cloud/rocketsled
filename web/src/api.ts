@@ -1,4 +1,4 @@
-import type { Account, Catalog, Environment, EnvironmentView, Me, PlatformRequirement, ProjectView, Run } from "./types";
+import type { Meta, Offer, User, Account, Catalog, Environment, EnvironmentView, Me, PlatformRequirement, ProjectView, Run } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -32,7 +32,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  meta: () => request<{ providers: string[]; baseUrl: string }>("/api/v1/meta"),
+  meta: () => request<Meta>("/api/v1/meta"),
+  passwordLogin: (login: string, password: string) =>
+    request<User>("/auth/password", { method: "POST", body: JSON.stringify({ login, password }) }),
+  offer: () => request<Offer>("/api/v1/offer"),
+  createApp: (input: { slug: string; name: string; runtime: string; addons: string[]; presets: Record<string, string> }) =>
+    request<Environment>("/api/v1/environments", { method: "POST", body: JSON.stringify(input) }),
   me: () => request<Me>("/api/v1/me"),
   logout: () => request<void>("/api/v1/logout", { method: "POST" }),
   createAccount: (name: string) => request<Account>("/api/v1/account", { method: "POST", body: JSON.stringify({ name }) }),

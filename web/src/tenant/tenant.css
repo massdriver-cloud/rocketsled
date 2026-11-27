@@ -1,0 +1,340 @@
+.t {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+.t-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.t-header__in {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.t-header a {
+  text-decoration: none;
+}
+
+.t-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.t-brand img {
+  width: 28px;
+  height: 28px;
+}
+
+.t-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.t-nav a {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  opacity: 0.8;
+}
+
+.t-nav a.active {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.t-spacer {
+  flex: 1;
+}
+
+.t-user {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.t-signout {
+  color: inherit !important;
+  font-size: 13px;
+}
+
+.t-main {
+  margin: 0 auto;
+}
+
+.t-login__body {
+  display: grid;
+  place-items: start center;
+  padding: 72px 16px;
+}
+
+.t-login__card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.t-login__card h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.t-login__card .card__body {
+  display: grid;
+  gap: 16px;
+}
+
+.t-login__card .form {
+  display: grid;
+  gap: 14px;
+}
+
+.t-tagline {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.t-new {
+  display: grid;
+  gap: 18px;
+  max-width: 760px;
+}
+
+.t-step .card__head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.t-runtimes,
+.t-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.t-runtime,
+.t-preset {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.t-runtime[aria-checked="true"],
+.t-preset[aria-checked="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.t-runtime {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 12px;
+}
+
+.t-runtime .t-preset__summary {
+  grid-column: 1 / -1;
+}
+
+.t-runtime__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+
+.t-runtime__name,
+.t-preset__name {
+  font-weight: 600;
+}
+
+.t-preset__price {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.t-preset__summary {
+  font-size: 13px;
+  color: var(--ink-2);
+  display: block;
+}
+
+.t-presets {
+  display: grid;
+  gap: 12px;
+}
+
+.t-slider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.t-slider input {
+  flex: 1;
+  max-width: 320px;
+}
+
+.t-slider__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.t-addons {
+  display: grid;
+  gap: 12px;
+}
+
+.t-addon {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.t-addon--on {
+  border-color: var(--line-2);
+  background: var(--surface-2);
+}
+
+.t-addon__head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.t-addon__head input {
+  margin-top: 4px;
+}
+
+.t-hero {
+  margin-bottom: 24px;
+}
+
+.t-hero__body {
+  padding: 28px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.t-hero__label {
+  color: var(--ink-2);
+}
+
+.t-hero__url {
+  font-size: 20px;
+  word-break: break-all;
+}
+
+.t-progress {
+  width: 240px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent-soft) 0%, var(--accent) 50%, var(--accent-soft) 100%);
+  background-size: 200% 100%;
+  animation: t-progress 1.4s linear infinite;
+}
+
+@keyframes t-progress {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+.t-empty {
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  padding: 48px 16px;
+}
+
+/* Fauxroku-style dashboards: a 2010 web app. */
+.t--dashboard .t-header__in {
+  height: 64px;
+}
+
+.t--dashboard .t-runtime__mark {
+  border-radius: 50%;
+  background: linear-gradient(#8a68d4, #5a3a9e);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.t--dashboard .head h1 {
+  font-family: var(--font-display);
+  font-weight: bold;
+}
+
+.t--dashboard .t-preset {
+  border-radius: 12px;
+}
+
+/* Fauxcel-style minimal: monochrome, square, quiet. */
+.t--minimal .t-header__in {
+  max-width: 880px;
+}
+
+.t--minimal .t-runtime__mark {
+  border-radius: 0;
+  background: var(--ink);
+  color: var(--bg);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.t--minimal .t-preset__price {
+  color: var(--ink-2);
+}
+
+.t--minimal .head h1 {
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  font-size: 40px;
+}
+
+.t--minimal .t-hero__url {
+  font-size: 24px;
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
+  .t-header__in {
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .t-user {
+    display: none;
+  }
+  .main.t-main {
+    padding: 24px 16px 64px;
+  }
+}

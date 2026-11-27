@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError } from "./api";
-import type { Account, Me } from "./types";
+import type { Account, Me, Meta } from "./types";
+import TenantApp from "./tenant/TenantApp";
 import { Shell } from "./components/Shell";
 import { Loading, Notice } from "./components/ui";
 import { Login } from "./pages/Login";
@@ -72,6 +73,15 @@ function Session() {
 }
 
 export default function App() {
+  const [meta, setMeta] = useState<Meta | null>(null);
+  useEffect(() => {
+    api
+      .meta()
+      .then(setMeta)
+      .catch(() => setMeta({ providers: [], baseUrl: "", mode: "" }));
+  }, []);
+  if (!meta) return null;
+  if (meta.mode === "tenant") return <TenantApp meta={meta} />;
   return (
     <BrowserRouter>
       <Routes>

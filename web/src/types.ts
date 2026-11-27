@@ -1,4 +1,4 @@
-export type Provider = "github" | "gitlab" | "dev";
+export type Provider = "github" | "gitlab" | "dev" | "password";
 
 export interface User {
   id: string;
@@ -99,6 +99,8 @@ export interface Environment {
   name: string;
   environmentId: string;
   presets: Record<string, string>;
+  runtime?: string;
+  addons?: string[];
   state: EnvironmentState;
   createdAt: string;
   updatedAt: string;
@@ -154,4 +156,49 @@ export interface EnvironmentView {
   platform?: PlatformEnvironment;
   runs: Run[];
   gone: boolean;
+}
+
+export interface Skin {
+  name: string;
+  tagline?: string;
+  logo?: string;
+  favicon?: string;
+  layout?: string;
+  colorScheme?: string;
+  copy?: Record<string, string>;
+}
+
+export interface Meta {
+  providers: string[];
+  baseUrl: string;
+  mode: string;
+  skin?: Skin;
+}
+
+export interface OfferedPreset {
+  name: string;
+  price?: string;
+  summary?: string;
+}
+
+export interface OfferedComponent {
+  slug: string;
+  name: string;
+  summary?: string;
+  bundle: string;
+  presets: OfferedPreset[];
+}
+
+export interface RuntimeOffer {
+  id: string;
+  name: string;
+  summary?: string;
+  project: string;
+  components: OfferedComponent[];
+  addons: OfferedComponent[];
+}
+
+export interface Offer {
+  runtimes: RuntimeOffer[];
+  highlights: Record<string, string[]>;
 }
