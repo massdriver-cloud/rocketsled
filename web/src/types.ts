@@ -128,7 +128,7 @@ export type RunStatus = "queued" | "running" | "succeeded" | "failed";
 export interface Run {
   id: string;
   number: number;
-  trigger: "create" | "deploy" | "addon" | "release";
+  trigger: "create" | "deploy" | "addon" | "release" | "domains";
   status: RunStatus;
   message?: string;
   createdAt: string;
@@ -231,9 +231,23 @@ export interface RuntimeOffer {
   project: string;
   components: OfferedComponent[];
   addons: OfferedComponent[];
+  domains: boolean;
 }
 
 export interface Offer {
   runtimes: RuntimeOffer[];
   limits: { appsPerPerson?: number; totalApps?: number; ttlHours?: number };
+}
+
+export interface DomainRecord {
+  domain: string;
+  recordType: string;
+  target: string;
+  status: "pending" | "configured";
+}
+
+export interface DomainsView {
+  domains: DomainRecord[];
+  target: string;
+  multiple: boolean;
 }

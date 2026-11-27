@@ -174,6 +174,11 @@ func (s *Store) CreateEnvironment(_ context.Context, e *domain.Environment) erro
 func cloneEnvironment(e domain.Environment) domain.Environment {
 	e.Presets = maps.Clone(e.Presets)
 	e.Addons = slices.Clone(e.Addons)
+	if e.Domains != nil {
+		d := *e.Domains
+		d.Hosts = slices.Clone(d.Hosts)
+		e.Domains = &d
+	}
 	return e
 }
 

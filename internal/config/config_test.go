@@ -99,6 +99,7 @@ paas:
     worker: {title: Worker}
     db: {title: Postgres}
   pipeline: {stages: []}
+  domains: {component: web, param: subdomain, target_field: url}
 auth:
   providers:
     password: {password: hunter22}
@@ -109,6 +110,19 @@ auth:
 	assert.Equal(t, "ruby", cfg.PaaS.Runtimes[0].Project)
 	assert.Equal(t, []string{"worker", "db"}, []string{cfg.PaaS.Addons[0].ID, cfg.PaaS.Addons[1].ID})
 	assert.Equal(t, "{{environment_id}}", cfg.PaaS.Pinned["web"]["subdomain"])
+	assert.Equal(t, &config.Domains{Component: "web", Param: "subdomain", TargetField: "url"}, cfg.PaaS.Domains)
+}
+
+func TestTenantDomainsNeedEveryKey(t *testing.T) {
+	_, err := config.Parse([]byte(`
+server: {session_secret: 0123456789abcdef0123456789abcdef}
+massdriver: {account_mode: tenant, organization_id: rs-test, api_key: md_test}
+paas:
+  runtimes: [{id: ruby, project: ruby, template: template}]
+  domains: {component: web, param: subdomain}
+auth: {providers: {password: {password: hunter22}}}
+`))
+	require.ErrorContains(t, err, "paas.domains needs component, param and target_field")
 }
 
 func TestCatalogInclude(t *testing.T) {

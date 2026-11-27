@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, timeAgo } from "../api";
-import type { Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin } from "../types";
+import type { DomainsView, Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin } from "../types";
 import { Highlights, Loading, Notice } from "../components/ui";
 import { Releases } from "../components/Releases";
 import { Tokens } from "../components/Tokens";
@@ -492,6 +492,96 @@ function NewApp() {
   );
 }
 
+function DomainsSection({ app, disabled, onChange }: { app: Environment; disabled: boolean; onChange: (fn: () => Promise<unknown>) => void }) {
+  const [view, setView] = useState<DomainsView | null>(null);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<ApiError | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .domains(app.id)
+      .then((v) => !cancelled && setView(v))
+      .catch((e: ApiError) => !cancelled && setError(e));
+    return () => {
+      cancelled = true;
+    };
+  }, [app.id, app.state, app.updatedAt]);
+
+  if (!view) return error ? <Notice tone="warn">{error.message}</Notice> : null;
+  const current = view.domains.map((d) => d.domain);
+
+  function save(domains: string[]) {
+    setError(null);
+    onChange(async () => {
+      try {
+        await api.setDomains(app.id, domains);
+        setDraft("");
+        setView(await api.domains(app.id));
+      } catch (e) {
+        setError(e as ApiError);
+      }
+    });
+  }
+
+  return (
+    <div className="section">
+      <div className="section__title">
+        <h2>Domains</h2>
+      </div>
+      <div className="card card__body t-domains">
+        {view.domains.length > 0 && (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Record to create</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {view.domains.map((d) => (
+                <tr key={d.domain}>
+                  <td className="mono">{d.domain}</td>
+                  <td className="mono small">{d.target ? `${d.recordType} ${d.domain} → ${d.target}` : "Shows up once the app is deployed"}</td>
+                  <td>
+                    <span className={`pill pill--${d.status === "configured" ? "ok" : "warn"}`}>{d.status === "configured" ? "Configured" : "Pending"}</span>
+                  </td>
+                  <td>
+                    <button className="linkbtn" disabled={disabled} onClick={() => save(current.filter((x) => x !== d.domain))}>
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {(view.multiple || current.length === 0) && (
+          <form
+            className="t-addon__confirm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save([...current, draft.trim()]);
+            }}
+          >
+            <label className={`field ${error?.field === "domains" ? "field--error" : ""}`}>
+              <span className="hint">Point your own domain at this app. Add it here, then create the CNAME record it shows.</span>
+              <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="www.example.com" aria-label="Domain" autoComplete="off" />
+              {error?.field === "domains" && <span className="field__error">{error.message}</span>}
+            </label>
+            <button className="btn" disabled={disabled || !draft.trim()}>
+              Add domain
+            </button>
+          </form>
+        )}
+        {error && error.field !== "domains" && <Notice tone="bad">{error.message}</Notice>}
+      </div>
+    </div>
+  );
+}
+
 function AddonsSection({
   app,
   addons,
@@ -759,6 +849,8 @@ function AppPage() {
       </div>
 
       {view.release && <Releases env={app} component={view.release.component} onRelease={refresh} />}
+
+      {rt?.domains && <DomainsSection app={app} disabled={busy || deleting} onChange={(fn) => act(fn)} />}
 
       {rt && rt.addons.length > 0 && <AddonsSection app={app} addons={rt.addons} disabled={busy || deleting} onChange={(fn) => act(fn)} />}
 
