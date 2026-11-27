@@ -664,13 +664,18 @@ function PromoteSection({
       .environments()
       .then((all) => {
         const later = all.filter(
-          (e) => e.id !== app.id && e.runtime === app.runtime && e.state !== "decommissioning" && stages.findIndex((s) => s.id === e.stage) > here,
+          (e) =>
+            e.id !== app.id &&
+            e.runtime === app.runtime &&
+            e.app === app.app &&
+            e.state !== "decommissioning" &&
+            stages.findIndex((s) => s.id === e.stage) > here,
         );
         setTargets(later);
         setTo((current) => current || later[0]?.id || "");
       })
       .catch(() => setTargets([]));
-  }, [app.id, app.runtime, stages, here]);
+  }, [app.id, app.runtime, app.app, stages, here]);
 
   if (targets.length === 0) return null;
   const stageName = (id?: string) => stages.find((s) => s.id === id)?.name ?? id;
