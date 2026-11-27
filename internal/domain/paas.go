@@ -190,6 +190,21 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 	return ro, nil
 }
 
+// presetParams are a component's params for a preset, without its label.
+func (ro *RuntimeOffer) presetParams(slug, preset string) map[string]any {
+	for _, c := range append(append([]OfferedComponent{}, ro.Components...), ro.Addons...) {
+		if c.Slug != slug {
+			continue
+		}
+		for _, p := range c.Presets {
+			if p.Name == preset {
+				return MergeParams(map[string]any{}, p.Params)
+			}
+		}
+	}
+	return map[string]any{}
+}
+
 func (o *Offer) runtime(id string) (*RuntimeOffer, bool) {
 	for i := range o.Runtimes {
 		if o.Runtimes[i].ID == id {
@@ -304,7 +319,9 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		params[c.Slug] = MergeParams(MergeParams(map[string]any{}, presets[c.Slug].Params), s.pinnedFor(rt, c.Slug, vars))
 	}
 	links, envRecordID, runCopy := ro.links, env.ID, *run
+	s.claim(envRecordID)
 	s.runAsync(func() {
+		defer s.release(envRecordID)
 		bg := context.Background()
 		err := s.deployInLayers(bg, platform, forked.ID, params, links, "Created by "+user.Login)
 		s.finishRun(bg, &runCopy, envRecordID, err)
@@ -322,17 +339,26 @@ func (s *Service) redeployTenant(ctx context.Context, platform Platform, env *En
 	rt := s.runtimeConfig(env.Runtime)
 	vars := appVars(env, rt)
 	params := map[string]map[string]any{}
+	var ro *RuntimeOffer
+	if offer, err := s.Offer(ctx); err == nil {
+		ro, _ = offer.runtime(env.Runtime)
+	}
 	for _, pi := range live.Instances {
-		if _, ok := env.Presets[pi.ComponentSlug]; ok {
-			// Pinned params win again, so a redeploy picks up what the operator changed.
-			params[pi.ComponentSlug] = MergeParams(pi.Params, s.pinnedFor(rt, pi.ComponentSlug, vars))
+		preset, ok := env.Presets[pi.ComponentSlug]
+		if !ok {
+			continue
 		}
+		current := pi.Params
+		if len(current) == 0 && ro != nil {
+			// A component whose first deploy never went through has no params yet.
+			current = ro.presetParams(pi.ComponentSlug, preset)
+		}
+		// Pinned params win again, so a redeploy picks up what the operator changed.
+		params[pi.ComponentSlug] = MergeParams(current, s.pinnedFor(rt, pi.ComponentSlug, vars))
 	}
 	var links []Link
-	if offer, err := s.Offer(ctx); err == nil {
-		if ro, ok := offer.runtime(env.Runtime); ok {
-			links = ro.links
-		}
+	if ro != nil {
+		links = ro.links
 	}
 	return s.deployInLayers(ctx, platform, env.EnvironmentID, params, links, "Redeployed by "+user.Login)
 }

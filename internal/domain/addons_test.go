@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -128,4 +129,50 @@ func TestAdoptedAppsReadTheirAddonsFromTheDescription(t *testing.T) {
 	require.Len(t, envs, 1)
 	assert.Equal(t, []string{"cache"}, envs[0].Addons, "a decommissioned add-on is not adopted back")
 	assert.Equal(t, map[string]string{"web": "Development", "cache": "Development"}, envs[0].Presets)
+}
+
+func TestOneChangeAtATime(t *testing.T) {
+	h := newTenantHarness(t, nil)
+	ctx := context.Background()
+	app := h.app(t, "hello", "cache")
+	deploy := h.platform.DeployInstanceFunc
+	var nested error
+	h.platform.DeployInstanceFunc = func(ctx context.Context, id string, params map[string]any, msg string) error {
+		if id == "ruby-hello-db" {
+			_, nested = h.svc.RemoveAddon(ctx, h.user, h.account, app.ID, "cache")
+		}
+		return deploy(ctx, id, params, msg)
+	}
+	_, err := h.svc.AddAddon(ctx, h.user, h.account, app.ID, domain.AddonInput{Component: "db"})
+	require.NoError(t, err)
+	require.ErrorIs(t, nested, domain.ErrConflict, "a remove while the add is still deploying is refused")
+
+	_, err = h.svc.RemoveAddon(ctx, h.user, h.account, app.ID, "cache")
+	require.NoError(t, err, "once the add finished, the next change goes through")
+}
+
+func TestRedeployAfterAFailedAddUsesThePlanPicked(t *testing.T) {
+	h := newTenantHarness(t, nil)
+	ctx := context.Background()
+	app := h.app(t, "hello")
+	deploy := h.platform.DeployInstanceFunc
+	h.platform.DeployInstanceFunc = func(ctx context.Context, id string, params map[string]any, msg string) error {
+		if id == "ruby-hello-db" {
+			return errors.New("throttled")
+		}
+		return deploy(ctx, id, params, msg)
+	}
+	_, err := h.svc.AddAddon(ctx, h.user, h.account, app.ID, domain.AddonInput{Component: "db", Preset: "Production"})
+	require.NoError(t, err)
+
+	h.platform.DeployInstanceFunc = deploy
+	_, err = h.svc.DeployEnvironment(ctx, h.user, h.account, app.ID)
+	require.NoError(t, err)
+	var db map[string]any
+	for _, c := range h.platform.DeployInstanceCalls() {
+		if c.InstanceID == "ruby-hello-db" {
+			db = c.Params
+		}
+	}
+	assert.Equal(t, map[string]any{"size": "production"}, db, "the never-deployed add-on gets its plan, not empty params")
 }

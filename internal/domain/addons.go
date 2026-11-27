@@ -50,9 +50,7 @@ func (s *Service) AddAddon(ctx context.Context, user *User, account *Account, id
 	}
 	env.Presets[addon.Slug] = preset.Name
 	env.Addons = append(env.Addons, addon.Slug)
-	if err := platform.SetEnvironmentDescription(ctx, env.EnvironmentID, withPicks(live.Description, env.Presets)); err != nil {
-		return nil, fmt.Errorf("record %s on %s: %w", addon.Slug, env.EnvironmentID, err)
-	}
+	description := withPicks(live.Description, env.Presets)
 
 	rt := s.runtimeConfig(env.Runtime)
 	vars := appVars(env, rt)
@@ -60,6 +58,9 @@ func (s *Service) AddAddon(ctx context.Context, user *User, account *Account, id
 	params[addon.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), s.pinnedFor(rt, addon.Slug, vars))
 	links := ro.links
 	return s.startRun(ctx, user, env, TriggerAddon, "Added "+addon.Name, func(bg context.Context) error {
+		if err := platform.SetEnvironmentDescription(bg, env.EnvironmentID, description); err != nil {
+			return fmt.Errorf("record %s on %s: %w", addon.Slug, env.EnvironmentID, err)
+		}
 		return s.deployInLayers(bg, platform, env.EnvironmentID, params, links, "Added "+addon.Name+" for "+user.Login)
 	})
 }
@@ -111,11 +112,11 @@ func (s *Service) RemoveAddon(ctx context.Context, user *User, account *Account,
 		}
 		delete(stored.Presets, component)
 		stored.Addons = slices.DeleteFunc(stored.Addons, func(a string) bool { return a == component })
-		if err := s.store.UpdateEnvironment(bg, stored); err != nil {
-			return err
-		}
 		if err := platform.SetEnvironmentDescription(bg, envID, withPicks(live.Description, stored.Presets)); err != nil {
 			return fmt.Errorf("record removing %s on %s: %w", component, envID, err)
+		}
+		if err := s.store.UpdateEnvironment(bg, stored); err != nil {
+			return err
 		}
 		return s.deployInLayers(bg, platform, envID, params, links, "Removed "+name+" for "+user.Login)
 	})
@@ -124,7 +125,7 @@ func (s *Service) RemoveAddon(ctx context.Context, user *User, account *Account,
 // tenantApp loads an app the account owns with its runtime's offer.
 func (s *Service) tenantApp(ctx context.Context, account *Account, id string) (*Environment, *RuntimeOffer, error) {
 	if !s.tenant() {
-		return nil, nil, fmt.Errorf("%w: add-ons are only offered in tenant mode", ErrNotFound)
+		return nil, nil, fmt.Errorf("%w: this only exists in tenant mode", ErrNotFound)
 	}
 	env, err := s.ownedEnvironment(ctx, account, id)
 	if err != nil {

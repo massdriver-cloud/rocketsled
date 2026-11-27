@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -82,6 +83,7 @@ type Service struct {
 	inviteCode string
 	offers     offerCache
 	reaped     reapLog
+	inFlight   sync.Map
 }
 
 // NewService validates options and builds a Service.
@@ -1105,6 +1107,15 @@ func (s *Service) startRun(ctx context.Context, user *User, env *Environment, tr
 	if env.State == EnvironmentStateDecommissioning {
 		return nil, fmt.Errorf("%w: the environment is being destroyed", ErrConflict)
 	}
+	if !s.claim(env.ID) {
+		return nil, fmt.Errorf("%w: %s is still deploying; try again when it finishes", ErrConflict, env.Name)
+	}
+	started := false
+	defer func() {
+		if !started {
+			s.release(env.ID)
+		}
+	}()
 	previous, err := s.store.ListRuns(ctx, env.ID, 1)
 	if err != nil {
 		return nil, err
@@ -1123,12 +1134,23 @@ func (s *Service) startRun(ctx context.Context, user *User, env *Environment, tr
 		return nil, err
 	}
 	envRecordID, runCopy := env.ID, *run
+	started = true
 	s.runAsync(func() {
+		defer s.release(envRecordID)
 		bg := context.Background()
 		s.finishRun(bg, &runCopy, envRecordID, work(bg))
 	})
 	return run, nil
 }
+
+// claim marks an environment as having work in flight in this process, so two
+// changes never deploy the same instances at once.
+func (s *Service) claim(envID string) bool {
+	_, taken := s.inFlight.LoadOrStore(envID, struct{}{})
+	return !taken
+}
+
+func (s *Service) release(envID string) { s.inFlight.Delete(envID) }
 
 // DestroyEnvironment decommissions the environment. The record is removed once
 // every instance is gone (see EnvironmentStatus).

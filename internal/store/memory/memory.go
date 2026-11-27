@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"sync"
 
@@ -157,8 +158,16 @@ func (s *Store) CreateEnvironment(_ context.Context, e *domain.Environment) erro
 			return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
 		}
 	}
-	s.environments[e.ID] = *e
+	s.environments[e.ID] = cloneEnvironment(*e)
 	return nil
+}
+
+// cloneEnvironment copies the maps and slices too, so a caller holding an
+// environment can't change the store without saving it, as with SQLite.
+func cloneEnvironment(e domain.Environment) domain.Environment {
+	e.Presets = maps.Clone(e.Presets)
+	e.Addons = slices.Clone(e.Addons)
+	return e
 }
 
 func (s *Store) GetEnvironment(_ context.Context, id string) (*domain.Environment, error) {
@@ -168,6 +177,7 @@ func (s *Store) GetEnvironment(_ context.Context, id string) (*domain.Environmen
 	if !ok {
 		return nil, fmt.Errorf("%w: environment %s", domain.ErrNotFound, id)
 	}
+	e = cloneEnvironment(e)
 	return &e, nil
 }
 
@@ -177,7 +187,7 @@ func (s *Store) ListEnvironments(_ context.Context, accountID string) ([]domain.
 	out := []domain.Environment{}
 	for _, e := range s.environments {
 		if e.AccountID == accountID {
-			out = append(out, e)
+			out = append(out, cloneEnvironment(e))
 		}
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].CreatedAt.Before(out[b].CreatedAt) })
@@ -190,7 +200,7 @@ func (s *Store) UpdateEnvironment(_ context.Context, e *domain.Environment) erro
 	if _, ok := s.environments[e.ID]; !ok {
 		return fmt.Errorf("%w: environment %s", domain.ErrNotFound, e.ID)
 	}
-	s.environments[e.ID] = *e
+	s.environments[e.ID] = cloneEnvironment(*e)
 	return nil
 }
 
