@@ -71,6 +71,9 @@ var _ domain.Platform = &PlatformMock{}
 //			SetEnvironmentDescriptionFunc: func(ctx context.Context, environmentID string, description string) error {
 //				panic("mock out the SetEnvironmentDescription method")
 //			},
+//			SetInstanceVersionFunc: func(ctx context.Context, instanceID string, version string) error {
+//				panic("mock out the SetInstanceVersion method")
+//			},
 //			StartDeploymentFunc: func(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
 //				panic("mock out the StartDeployment method")
 //			},
@@ -131,6 +134,9 @@ type PlatformMock struct {
 
 	// SetEnvironmentDescriptionFunc mocks the SetEnvironmentDescription method.
 	SetEnvironmentDescriptionFunc func(ctx context.Context, environmentID string, description string) error
+
+	// SetInstanceVersionFunc mocks the SetInstanceVersion method.
+	SetInstanceVersionFunc func(ctx context.Context, instanceID string, version string) error
 
 	// StartDeploymentFunc mocks the StartDeployment method.
 	StartDeploymentFunc func(ctx context.Context, instanceID string, params map[string]any, message string) (string, error)
@@ -276,6 +282,15 @@ type PlatformMock struct {
 			// Description is the description argument value.
 			Description string
 		}
+		// SetInstanceVersion holds details about calls to the SetInstanceVersion method.
+		SetInstanceVersion []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// InstanceID is the instanceID argument value.
+			InstanceID string
+			// Version is the version argument value.
+			Version string
+		}
 		// StartDeployment holds details about calls to the StartDeployment method.
 		StartDeployment []struct {
 			// Ctx is the ctx argument value.
@@ -305,6 +320,7 @@ type PlatformMock struct {
 	lockPing                      sync.RWMutex
 	lockSetEnvironmentDefault     sync.RWMutex
 	lockSetEnvironmentDescription sync.RWMutex
+	lockSetInstanceVersion        sync.RWMutex
 	lockStartDeployment           sync.RWMutex
 }
 
@@ -1015,6 +1031,49 @@ func (mock *PlatformMock) SetEnvironmentDescriptionCalls() []struct {
 	mock.lockSetEnvironmentDescription.RLock()
 	calls = mock.calls.SetEnvironmentDescription
 	mock.lockSetEnvironmentDescription.RUnlock()
+	return calls
+}
+
+// SetInstanceVersion calls SetInstanceVersionFunc.
+func (mock *PlatformMock) SetInstanceVersion(ctx context.Context, instanceID string, version string) error {
+	callInfo := struct {
+		Ctx        context.Context
+		InstanceID string
+		Version    string
+	}{
+		Ctx:        ctx,
+		InstanceID: instanceID,
+		Version:    version,
+	}
+	mock.lockSetInstanceVersion.Lock()
+	mock.calls.SetInstanceVersion = append(mock.calls.SetInstanceVersion, callInfo)
+	mock.lockSetInstanceVersion.Unlock()
+	if mock.SetInstanceVersionFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.SetInstanceVersionFunc(ctx, instanceID, version)
+}
+
+// SetInstanceVersionCalls gets all the calls that were made to SetInstanceVersion.
+// Check the length with:
+//
+//	len(mockedPlatform.SetInstanceVersionCalls())
+func (mock *PlatformMock) SetInstanceVersionCalls() []struct {
+	Ctx        context.Context
+	InstanceID string
+	Version    string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		InstanceID string
+		Version    string
+	}
+	mock.lockSetInstanceVersion.RLock()
+	calls = mock.calls.SetInstanceVersion
+	mock.lockSetInstanceVersion.RUnlock()
 	return calls
 }
 

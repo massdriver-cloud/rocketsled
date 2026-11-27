@@ -24,14 +24,21 @@ func TestOwnerMarkerRoundTrips(t *testing.T) {
 func TestChangedComparesParamsAndVersion(t *testing.T) {
 	env := func(webVersion, apiSize string) *PlatformEnvironment {
 		return &PlatformEnvironment{Instances: []PlatformInstance{
-			{ComponentSlug: "web", Version: webVersion, Params: map[string]any{"size": "small"}},
-			{ComponentSlug: "api", Version: "1.0.0", Params: map[string]any{"size": apiSize}},
-			{ComponentSlug: "db", Version: "1.0.0", Params: map[string]any{"size": "small"}},
+			{ComponentSlug: "web", Status: "PROVISIONED", Version: webVersion, DeployedVersion: webVersion, Params: map[string]any{"size": "small"}},
+			{ComponentSlug: "api", Status: "PROVISIONED", Version: "1.0.0", DeployedVersion: "1.0.0", Params: map[string]any{"size": apiSize}},
+			{ComponentSlug: "db", Status: "PROVISIONED", Version: "1.0.0", DeployedVersion: "1.0.0", Params: map[string]any{"size": "small"}},
 		}}
 	}
 	got := changed(env("1.0.0", "small"), env("1.1.0", "large"), []string{"web", "api"})
 	assert.Equal(t, map[string]map[string]any{"web": {"size": "small"}, "api": {"size": "large"}}, got)
 	assert.Empty(t, changed(env("1.0.0", "small"), env("1.0.0", "small"), []string{"web", "api", "db"}))
+
+	failed := env("1.0.0", "small")
+	failed.Instances[0].Status = "FAILED"
+	assert.Contains(t, changed(env("1.0.0", "small"), failed, []string{"web"}), "web", "a promotion whose deploy failed deploys again on retry")
+	behind := env("1.0.0", "small")
+	behind.Instances[0].DeployedVersion = "0.9.0"
+	assert.Contains(t, changed(env("1.0.0", "small"), behind, []string{"web"}), "web", "so does one configured past what is deployed")
 }
 
 func TestOpenUserRebuildsFromTheSessionID(t *testing.T) {

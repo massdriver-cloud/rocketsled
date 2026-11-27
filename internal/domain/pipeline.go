@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 // Pipeline orders an app's environments into stages and names the components
@@ -148,12 +149,20 @@ func (s *Service) Promote(ctx context.Context, user *User, account *Account, id 
 	overrides := make(map[string]map[string]any, len(components))
 	for _, slug := range components {
 		preset := maps.Clone(ro.presets[slug][target.Presets[slug]])
-		overrides[slug] = MergeParams(MergeParams(map[string]any{}, preset), s.pinnedFor(rt, slug, vars))
+		// The target keeps what its plan sets, the operator's pinned params
+		// and its own domains; everything else comes from the source.
+		overrides[slug] = MergeParams(MergeParams(map[string]any{}, preset), s.fixedParams(rt, target, slug, vars))
 	}
 	platform := s.platforms(s.shared)
-	sourceID, targetID, links := source.EnvironmentID, target.EnvironmentID, ro.links
+	sourceID, targetID, targetRecordID, links := source.EnvironmentID, target.EnvironmentID, target.ID, ro.links
+	promotesImage := slices.Contains(components, rt.AppComponent) && source.Image != ""
+	image := source.Image
 	message := "Promoted from " + source.Name
 	return s.startRun(ctx, user, target, TriggerPromote, message, func(bg context.Context) error {
+		from, err := platform.GetEnvironment(bg, sourceID)
+		if err != nil {
+			return fmt.Errorf("load %s: %w", sourceID, err)
+		}
 		before, err := platform.GetEnvironment(bg, targetID)
 		if err != nil {
 			return fmt.Errorf("load %s: %w", targetID, err)
@@ -162,18 +171,37 @@ func (s *Service) Promote(ctx context.Context, user *User, account *Account, id 
 			if err := platform.CopyInstance(bg, sourceID+"-"+slug, targetID+"-"+slug, overrides[slug]); err != nil {
 				return fmt.Errorf("copy %s: %w", slug, err)
 			}
+			// copyInstance moves params only; the build that passed the earlier
+			// stage is pinned by its exact version.
+			src, _ := instanceOf(from, slug)
+			dst, _ := instanceOf(before, slug)
+			if src.Version != "" && src.Version != dst.Version {
+				if err := platform.SetInstanceVersion(bg, targetID+"-"+slug, src.Version); err != nil {
+					return fmt.Errorf("pin %s to %s: %w", slug, src.Version, err)
+				}
+			}
 		}
 		after, err := platform.GetEnvironment(bg, targetID)
 		if err != nil {
 			return fmt.Errorf("load %s: %w", targetID, err)
 		}
 		params := changed(before, after, components)
-		return s.deployInLayers(bg, platform, targetID, params, links, message+" by "+user.Login)
+		if err := s.deployInLayers(bg, platform, targetID, params, links, message+" by "+user.Login); err != nil {
+			return err
+		}
+		if promotesImage {
+			if stored, err := s.store.GetEnvironment(bg, targetRecordID); err == nil {
+				stored.Image = image
+				return s.store.UpdateEnvironment(bg, stored)
+			}
+		}
+		return nil
 	})
 }
 
-// changed returns the params of each component whose params or version differ
-// between two reads of an environment.
+// changed returns the params of each component that needs a deploy: its params
+// or version moved between two reads, or what is deployed isn't what is
+// configured, as after a promotion whose deploy failed.
 func changed(before, after *PlatformEnvironment, slugs []string) map[string]map[string]any {
 	was := map[string]PlatformInstance{}
 	for _, pi := range before.Instances {
@@ -185,7 +213,8 @@ func changed(before, after *PlatformEnvironment, slugs []string) map[string]map[
 			continue
 		}
 		old := was[pi.ComponentSlug]
-		if pi.Version != old.Version || !reflect.DeepEqual(pi.Params, old.Params) {
+		stale := !strings.EqualFold(pi.Status, "PROVISIONED") || pi.DeployedVersion != pi.Version
+		if stale || pi.Version != old.Version || !reflect.DeepEqual(pi.Params, old.Params) {
 			out[pi.ComponentSlug] = pi.Params
 		}
 	}

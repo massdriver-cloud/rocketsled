@@ -133,6 +133,26 @@ func TestPromoteCopiesConfigButKeepsTheTargetsPresetAndPinnedParams(t *testing.T
 	assert.Len(t, h.platform.DeployInstanceCalls(), before+1, "promoting again changes nothing, so nothing deploys")
 }
 
+func TestPromoteMovesTheBundleVersion(t *testing.T) {
+	h := newTenantHarness(t, pipelinePaaS())
+	h.copyMergesIntoTheWorld()
+	stg := h.stagedApp(t, "stg", "staging")
+	prd := h.stagedApp(t, "prd", "production")
+	h.world.version["ruby-stg-web"], h.world.deployed["ruby-stg-web"] = "1.3.0", "1.3.0"
+	h.world.version["ruby-prd-web"], h.world.deployed["ruby-prd-web"] = "1.2.0", "1.2.0"
+	h.world.set("ruby-prd-web", "PROVISIONED", nil)
+	before := len(h.platform.DeployInstanceCalls())
+
+	_, err := h.svc.Promote(context.Background(), h.user, h.account, stg.ID, domain.PromoteInput{To: prd.ID})
+	require.NoError(t, err)
+	pins := h.platform.SetInstanceVersionCalls()
+	require.Len(t, pins, 1)
+	assert.Equal(t, "ruby-prd-web", pins[0].InstanceID)
+	assert.Equal(t, "1.3.0", pins[0].Version)
+	assert.Equal(t, []string{"ruby-prd-web"}, deployedIDs(h)[before:], "a new version deploys even when the params match")
+	assert.Equal(t, "1.3.0", h.world.deployed["ruby-prd-web"])
+}
+
 func TestPromoteOnlyCopiesComponentsBothAppsDeploy(t *testing.T) {
 	h := newTenantHarness(t, pipelinePaaS())
 	h.copyMergesIntoTheWorld()
