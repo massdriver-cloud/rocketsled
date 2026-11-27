@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -94,7 +95,12 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	catalogs, err := catalog.LoadAll(cfg.Catalogs.All()...)
+	installed, err := installedCatalogs(store)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	catalogs, err := catalog.LoadAll(cfg.Catalogs.All(), cfg.Catalogs.Include, installed)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
@@ -124,6 +130,7 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 		SCMs:             scms,
 		Installer:        installer.New(cfg.Tools.Mass, cfg.Tools.Tofu, filepath.Join(cfg.DataDir, "plugin-cache")),
 		Catalogs:         catalogs,
+		Offered:          cfg.Catalogs.Include,
 		Mode:             domain.AccountMode(cfg.Massdriver.AccountMode),
 		SharedCredential: domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey},
 		OrgCreator:       domain.Credential{URL: cfg.Massdriver.URL, APIKey: creatorToken},
@@ -250,6 +257,24 @@ func check(args []string, log *slog.Logger) error {
 			c.ID, c.Name, len(c.Platforms), len(c.ResourceTypes), len(c.Bundles), c.Bootstrap.Project, c.Bootstrap.BaseEnvironment)
 	}
 	return nil
+}
+
+// installedCatalogs are the catalogs accounts have installed, which stay
+// loaded when catalogs.include stops offering them.
+func installedCatalogs(store *sqlite.Store) ([]string, error) {
+	var ids []string
+	for _, status := range []domain.AccountStatus{domain.AccountStatusInstalling, domain.AccountStatusNeedsCredentials, domain.AccountStatusReady, domain.AccountStatusFailed} {
+		accounts, err := store.ListAccounts(context.Background(), status)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range accounts {
+			if a.CatalogID != "" && !slices.Contains(ids, a.CatalogID) {
+				ids = append(ids, a.CatalogID)
+			}
+		}
+	}
+	return ids, nil
 }
 
 func paasFrom(p *config.PaaS) *domain.PaaS {

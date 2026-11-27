@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -50,11 +52,14 @@ type platformFile struct {
 	} `yaml:"ui"`
 }
 
-// LoadAll reads every catalog under each of dirs, sorted by name. A catalog ID
+// LoadAll reads the catalogs under each of dirs, sorted by name. When include
+// is not empty, only catalogs with those IDs, or with an ID in keep, are
+// loaded, and an included ID that matches no catalog is an error. A catalog ID
 // found in two places is an error.
-func LoadAll(dirs ...string) ([]domain.Catalog, error) {
+func LoadAll(dirs, include, keep []string) ([]domain.Catalog, error) {
 	var out []domain.Catalog
 	where := map[string]string{}
+	var unreadable []string
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -68,6 +73,16 @@ func LoadAll(dirs ...string) ([]domain.Catalog, error) {
 			if _, err := os.Stat(filepath.Join(path, "catalog.yaml")); err != nil {
 				continue
 			}
+			if len(include) > 0 {
+				id, err := catalogID(path)
+				if err != nil {
+					unreadable = append(unreadable, fmt.Sprintf("%s (%v)", path, err))
+					continue
+				}
+				if !slices.Contains(include, id) && !slices.Contains(keep, id) {
+					continue
+				}
+			}
 			c, err := Load(path)
 			if err != nil {
 				return nil, fmt.Errorf("catalog %s: %w", path, err)
@@ -79,8 +94,40 @@ func LoadAll(dirs ...string) ([]domain.Catalog, error) {
 			out = append(out, *c)
 		}
 	}
+	var missing []string
+	for _, id := range include {
+		if _, ok := where[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		msg := fmt.Sprintf("catalogs.include: no catalog with id %s in %s", strings.Join(missing, ", "), strings.Join(dirs, ", "))
+		if len(unreadable) > 0 {
+			msg += "; these catalog.yaml files could not be read: " + strings.Join(unreadable, "; ")
+		}
+		return nil, errors.New(msg)
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// catalogID reads only a catalog's id, so a catalog that is not offered can't
+// stop the server however broken the rest of it is.
+func catalogID(dir string) (string, error) {
+	var m struct {
+		ID string `yaml:"id"`
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "catalog.yaml"))
+	if err != nil {
+		return "", err
+	}
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return "", err
+	}
+	if m.ID == "" {
+		return "", errors.New("no id")
+	}
+	return m.ID, nil
 }
 
 // Load reads one catalog directory.

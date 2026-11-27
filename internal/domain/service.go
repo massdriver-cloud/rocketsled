@@ -32,7 +32,10 @@ type Options struct {
 	SCMs      []SCM
 	Installer Installer
 	Catalogs  []Catalog
-	Mode      AccountMode
+	// Offered, when set, are the catalog IDs new accounts may install; the
+	// rest of Catalogs are loaded only for accounts that already installed them.
+	Offered []string
+	Mode    AccountMode
 	// SharedCredential is used by every account in AccountModeShared.
 	SharedCredential Credential
 	// OrgCreator is a user credential allowed to create organizations (AccountModeOrganization).
@@ -62,6 +65,7 @@ type Service struct {
 	scms       map[Provider]SCM
 	installer  Installer
 	catalogs   []Catalog
+	offered    []string
 	mode       AccountMode
 	shared     Credential
 	orgCreator Credential
@@ -110,6 +114,7 @@ func NewService(o Options) (*Service, error) {
 		scms:       make(map[Provider]SCM, len(o.SCMs)),
 		installer:  o.Installer,
 		catalogs:   o.Catalogs,
+		offered:    o.Offered,
 		mode:       o.Mode,
 		shared:     o.SharedCredential,
 		orgCreator: o.OrgCreator,
@@ -309,7 +314,17 @@ func (s *Service) platformFor(ctx context.Context, account *Account) (Platform, 
 
 // ListCatalogs returns the catalogs a customer can install.
 func (s *Service) ListCatalogs() []Catalog {
-	return append([]Catalog(nil), s.catalogs...)
+	out := []Catalog{}
+	for _, c := range s.catalogs {
+		if s.isOffered(c.ID) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (s *Service) isOffered(catalogID string) bool {
+	return len(s.offered) == 0 || slices.Contains(s.offered, catalogID)
 }
 
 // GetCatalog finds a catalog by ID.
@@ -335,6 +350,9 @@ func (s *Service) InstallCatalog(ctx context.Context, account *Account, catalogI
 		return nil, fmt.Errorf("%w: a catalog is already installed", ErrConflict)
 	}
 	catalog, err := s.GetCatalog(catalogID)
+	if err == nil && !s.isOffered(catalogID) {
+		err = fmt.Errorf("%w: catalog %q", ErrNotFound, catalogID)
+	}
 	if err != nil {
 		return nil, Invalid("catalogId", "%s", err.Error())
 	}

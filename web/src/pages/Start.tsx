@@ -47,39 +47,58 @@ function ChooseCatalog({ onAccount }: { onAccount: (a: Account) => void }) {
     }
   }
 
+  const only = catalogs?.length === 1 ? catalogs[0] : null;
   return (
     <>
-      <Steps current={1} />
+      <Steps current={1} first={only ? "Set up" : undefined} />
       <div className="head">
         <div className="head__text">
-          <h1>Choose a platform</h1>
-          <p>Each platform is a complete setup: the infrastructure pieces, how they connect, and a production environment to start from.</p>
+          <h1>{only ? `Set up ${only.name}` : "Choose a platform"}</h1>
+          <p>
+            {only
+              ? only.description
+              : "Each platform is a complete setup: the infrastructure pieces, how they connect, and a production environment to start from."}
+          </p>
         </div>
       </div>
       {error && <Notice tone="bad">{error}</Notice>}
       {catalogs === null && !error && <Loading />}
       <div className="catalogs">
-        {catalogs?.map((c) => (
-          <button key={c.id} type="button" className="card catalog" aria-pressed={chosen === c.id} onClick={() => setChosen(c.id)}>
-            <div className="catalog__row">
-              <h2>{c.name}</h2>
-              <span className="catalog__cloud">{c.cloud}</span>
-            </div>
-            <p className="muted">{c.tagline}</p>
-            <div className="chips">
-              {c.bundles.map((b) => (
-                <span key={b} className="chip">
-                  {b}
-                </span>
-              ))}
-            </div>
-          </button>
-        ))}
+        {only ? (
+          <div className="card catalog">
+            <CatalogCard catalog={only} />
+          </div>
+        ) : (
+          catalogs?.map((c) => (
+            <button key={c.id} type="button" className="card catalog" aria-pressed={chosen === c.id} onClick={() => setChosen(c.id)}>
+              <CatalogCard catalog={c} />
+            </button>
+          ))
+        )}
       </div>
       <div className="btn-row" style={{ marginTop: 24 }}>
         <button className="btn btn--primary btn--lg" disabled={!chosen || busy} onClick={install}>
-          {busy ? "Starting…" : "Install this platform"}
+          {busy ? "Starting…" : only ? `Set up ${only.name}` : "Install this platform"}
         </button>
+      </div>
+    </>
+  );
+}
+
+function CatalogCard({ catalog }: { catalog: Catalog }) {
+  return (
+    <>
+      <div className="catalog__row">
+        <h2>{catalog.name}</h2>
+        <span className="catalog__cloud">{catalog.cloud}</span>
+      </div>
+      <p className="muted">{catalog.tagline}</p>
+      <div className="chips">
+        {catalog.bundles.map((b) => (
+          <span key={b} className="chip">
+            {b}
+          </span>
+        ))}
       </div>
     </>
   );

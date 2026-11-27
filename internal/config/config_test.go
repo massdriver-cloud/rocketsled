@@ -111,6 +111,23 @@ auth:
 	assert.Equal(t, "{{environment_id}}", cfg.PaaS.Pinned["web"]["subdomain"])
 }
 
+func TestCatalogInclude(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+server:
+  session_secret: 0123456789abcdef0123456789abcdef
+massdriver:
+  organization_id: rs-test
+  api_key: md_test
+catalogs:
+  include: [fauxroku]
+auth:
+  providers:
+    dev: {login: cory}
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"fauxroku"}, cfg.Catalogs.Include)
+}
+
 func TestCatalogDirs(t *testing.T) {
 	const base = `
 server:
@@ -139,6 +156,7 @@ auth:
 		},
 		{name: "both", catalogs: "catalogs: {dir: catalogs, dirs: [more]}", want: []string{"catalogs", filepath.Join(dir, "more")}},
 		{name: "empty entry", catalogs: `catalogs: {dirs: [""]}`, wantErr: "catalogs.dirs must not have empty entries"},
+		{name: "empty include", catalogs: `catalogs: {include: [fauxroku, ""]}`, wantErr: "catalogs.include must not have empty entries"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
