@@ -254,6 +254,7 @@ function Apps() {
           {copy("newEnvironment")}
         </Link>
       </div>
+      <PlatformNote offer={offer} />
       {error && <Notice tone="bad">{error}</Notice>}
       {apps === null && !error && <Loading />}
       {apps?.length === 0 && (
@@ -425,6 +426,7 @@ function NewApp() {
           <LimitsNote offer={loaded} />
         </div>
       </div>
+      <PlatformNote offer={loaded} />
 
       <section className="card t-step">
         <div className="card__head">
@@ -776,6 +778,18 @@ function AddonsSection({
         })}
       </div>
     </div>
+  );
+}
+
+function PlatformNote({ offer }: { offer?: Offer }) {
+  const p = offer?.platform;
+  if (!p || p.state === "running") return null;
+  return (
+    <Notice tone={p.state === "failed" ? "bad" : "warn"}>
+      {p.state === "failed"
+        ? "The platform every app runs on could not be set up. New apps wait until it is fixed."
+        : "The platform every app runs on is still being set up. New apps can be made in a few minutes."}
+    </Notice>
   );
 }
 

@@ -47,6 +47,11 @@ no cloud account. With `massdriver.account_mode: tenant`:
 - A runtime's `app_component` and `image_param` say where releases land. A build
   releases an image with a deploy token; the image wins over pinned params from
   then on, so a pinned welcome image only shows until the first release.
+- `paas.platform` names a project deployed once (`project`, `environment`). The server
+  deploys each of its `components` that isn't provisioned, in order, with its preset
+  and `params` (`{{platform_domain}}` is `domain`), then grants each of its `shares`
+  (`component.field`) to every runtime project and pins it on every runtime template.
+  It checks again every five minutes, and new apps wait while it isn't running.
 - `paas.previews` (`presets`, `ttl`) lets a build make a preview per branch or pull
   request: `PUT /api/v1/previews/pr42 {image, runtime}` with a deploy token makes it
   with those presets the first time and releases to it after that. A preview whose

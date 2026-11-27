@@ -28,6 +28,7 @@ type PaaS struct {
 	Domains  *Domains
 	Pipeline Pipeline
 	Previews *Previews
+	Platform *PlatformLayer
 }
 
 // Previews are short-lived apps a build makes per branch or pull request.
@@ -75,9 +76,11 @@ type Plan struct {
 
 // Offer is everything a customer can pick from.
 type Offer struct {
-	Runtimes []RuntimeOffer `json:"runtimes"`
-	Limits   Limits         `json:"limits"`
-	Stages   []StageSummary `json:"stages"`
+	// Platform is the shared platform layer's state, when there is one.
+	Platform *PlatformStatus `json:"platform,omitempty"`
+	Runtimes []RuntimeOffer  `json:"runtimes"`
+	Limits   Limits          `json:"limits"`
+	Stages   []StageSummary  `json:"stages"`
 }
 
 // RuntimeOffer is a runtime with the components every app of it gets and the
@@ -133,6 +136,16 @@ func (s *Service) Offer(ctx context.Context) (*Offer, error) {
 	if !s.tenant() {
 		return nil, fmt.Errorf("%w: only tenant mode has an offer", ErrNotFound)
 	}
+	offer, err := s.cachedOffer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	withStatus := *offer
+	withStatus.Platform = s.PlatformStatus()
+	return &withStatus, nil
+}
+
+func (s *Service) cachedOffer(ctx context.Context) (*Offer, error) {
 	s.offers.mu.Lock()
 	defer s.offers.mu.Unlock()
 	if s.offers.offer != nil && s.now().Sub(s.offers.at) < offerTTL {
@@ -322,6 +335,9 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		in.Name = in.Slug
 	}
 
+	if st := offer.Platform; st != nil && st.State != PlatformStateRunning {
+		return nil, fmt.Errorf("%w: the platform every app runs on is still being set up; try again in a few minutes", ErrConflict)
+	}
 	platform := s.platforms(s.shared)
 	if err := s.checkLimits(ctx, platform, account); err != nil {
 		return nil, err

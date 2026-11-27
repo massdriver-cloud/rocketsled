@@ -175,6 +175,11 @@ func serve(args []string, log *slog.Logger) error {
 			tick := time.NewTicker(5 * time.Minute)
 			defer tick.Stop()
 			for {
+				go func() {
+					if err := a.svc.EnsurePlatform(ctx); err != nil {
+						log.Warn("platform layer", "err", err)
+					}
+				}()
 				a.svc.ReapExpired(ctx)
 				a.svc.ReapPreviews(ctx)
 				select {
@@ -297,6 +302,17 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
 			AppComponent: r.AppComponent, ImageParam: r.ImageParam, Pinned: r.Pinned,
 		})
+	}
+	if pl := p.Platform; pl != nil {
+		layer := &domain.PlatformLayer{Project: pl.Project, Environment: pl.Environment, Domain: pl.Domain}
+		for _, c := range pl.Components {
+			layer.Components = append(layer.Components, domain.PlatformComponent{Slug: c.Slug, Preset: c.Preset, Params: c.Params})
+		}
+		for _, share := range pl.Shares {
+			component, field, _ := strings.Cut(share, ".")
+			layer.Shares = append(layer.Shares, domain.Share{Component: component, Field: field})
+		}
+		out.Platform = layer
 	}
 	if p.Previews != nil {
 		out.Previews = &domain.Previews{Presets: p.Previews.Presets, TTL: p.Previews.TTL}

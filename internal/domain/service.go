@@ -61,29 +61,30 @@ type Options struct {
 
 // Service implements Rocketsled's use cases.
 type Service struct {
-	platforms  PlatformFactory
-	store      Store
-	scms       map[Provider]SCM
-	installer  Installer
-	catalogs   []Catalog
-	offered    []string
-	mode       AccountMode
-	shared     Credential
-	orgCreator Credential
-	dataDir    string
-	stable     bool
-	runAsync   func(func())
-	log        *slog.Logger
-	now        func() time.Time
-	newID      func() string
-	newOrgID   func() string
-	paas       *PaaS
-	password   string
-	open       bool
-	inviteCode string
-	offers     offerCache
-	reaped     reapLog
-	inFlight   sync.Map
+	platforms   PlatformFactory
+	store       Store
+	scms        map[Provider]SCM
+	installer   Installer
+	catalogs    []Catalog
+	offered     []string
+	mode        AccountMode
+	shared      Credential
+	orgCreator  Credential
+	dataDir     string
+	stable      bool
+	runAsync    func(func())
+	log         *slog.Logger
+	now         func() time.Time
+	newID       func() string
+	newOrgID    func() string
+	paas        *PaaS
+	password    string
+	open        bool
+	inviteCode  string
+	offers      offerCache
+	reaped      reapLog
+	inFlight    sync.Map
+	platformRun platformRun
 }
 
 // NewService validates options and builds a Service.

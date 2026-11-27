@@ -104,6 +104,14 @@ paas:
   previews:
     presets: {web: Development, db: Development}
     ttl: 72h
+  platform:
+    project: platform
+    environment: main
+    domain: fauxroku.dev
+    components:
+      network: {preset: Development}
+      dns: {preset: Development, params: {domain: "{{platform_domain}}"}}
+    shares: [network.network, cluster.cluster]
 auth:
   providers:
     password: {password: hunter22}
@@ -114,6 +122,10 @@ auth:
 	assert.Equal(t, "ruby", cfg.PaaS.Runtimes[0].Project)
 	assert.Equal(t, []string{"worker", "db"}, []string{cfg.PaaS.Addons[0].ID, cfg.PaaS.Addons[1].ID})
 	assert.Equal(t, "{{environment_id}}", cfg.PaaS.Pinned["web"]["subdomain"])
+	require.NotNil(t, cfg.PaaS.Platform)
+	assert.Equal(t, []string{"network", "dns"}, []string{cfg.PaaS.Platform.Components[0].Slug, cfg.PaaS.Platform.Components[1].Slug}, "components keep their deploy order")
+	assert.Equal(t, "{{platform_domain}}", cfg.PaaS.Platform.Components[1].Params["domain"])
+	assert.Equal(t, []string{"network.network", "cluster.cluster"}, cfg.PaaS.Platform.Shares)
 	assert.Equal(t, &config.Previews{Presets: map[string]string{"web": "Development", "db": "Development"}, TTL: 72 * time.Hour}, cfg.PaaS.Previews)
 	assert.Equal(t, &config.Domains{Component: "web", Param: "subdomain", TargetField: "url"}, cfg.PaaS.Domains)
 }
@@ -248,5 +260,24 @@ paas:
 			assert.Equal(t, map[string]string{"web": "Development"}, stages[0].Presets)
 			assert.Equal(t, []string{"web"}, cfg.PaaS.Pipeline.Promote)
 		})
+	}
+}
+
+func TestPlatformLayerValidation(t *testing.T) {
+	_, err := config.Parse([]byte(`
+server: {session_secret: 0123456789abcdef0123456789abcdef}
+massdriver: {account_mode: tenant, organization_id: rs-test, api_key: md_test}
+paas:
+  runtimes: [{id: ruby, project: ruby, template: template}]
+  platform:
+    environment: main
+    components:
+      network: {}
+    shares: [network]
+auth: {providers: {password: {password: hunter22}}}
+`))
+	require.Error(t, err)
+	for _, want := range []string{"paas.platform needs project and environment", `"network" must be component.field`, "components.network needs a preset"} {
+		assert.Contains(t, err.Error(), want)
 	}
 }

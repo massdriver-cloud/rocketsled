@@ -46,6 +46,45 @@ type PaaS struct {
 	Domains    *Domains                   `yaml:"domains"`
 	Pipeline   Pipeline                   `yaml:"pipeline"`
 	Previews   *Previews                  `yaml:"previews"`
+	Platform   *PlatformLayer             `yaml:"platform"`
+}
+
+// PlatformLayer is a project deployed once whose resources every runtime
+// template uses as environment defaults: a shared network or cluster, say.
+type PlatformLayer struct {
+	Project     string `yaml:"project"`
+	Environment string `yaml:"environment"`
+	// Domain fills {{platform_domain}} in component params.
+	Domain string `yaml:"domain"`
+	// Components deploy in the order listed, each once.
+	Components PlatformComponents `yaml:"components"`
+	// Shares are component.field resources granted to and pinned on every runtime template.
+	Shares []string `yaml:"shares"`
+}
+
+// PlatformComponent is a platform component with the preset it deploys with.
+type PlatformComponent struct {
+	Slug   string
+	Preset string         `yaml:"preset"`
+	Params map[string]any `yaml:"params"`
+}
+
+// PlatformComponents keeps the order the config lists them in, which is the deploy order.
+type PlatformComponents []PlatformComponent
+
+func (c *PlatformComponents) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return errors.New("paas.platform.components must be a mapping of component to preset and params")
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		var pc PlatformComponent
+		if err := n.Content[i+1].Decode(&pc); err != nil {
+			return err
+		}
+		pc.Slug = n.Content[i].Value
+		*c = append(*c, pc)
+	}
+	return nil
 }
 
 // Domains names the component customers' own hostnames land on: the param that
@@ -392,6 +431,21 @@ func (p *PaaS) validate() []error {
 	}
 	if d := p.Domains; d != nil && (d.Component == "" || d.Param == "" || d.TargetField == "") {
 		errs = append(errs, errors.New("paas.domains needs component, param and target_field"))
+	}
+	if pl := p.Platform; pl != nil {
+		if pl.Project == "" || pl.Environment == "" {
+			errs = append(errs, errors.New("paas.platform needs project and environment"))
+		}
+		for _, share := range pl.Shares {
+			if component, field, ok := strings.Cut(share, "."); !ok || component == "" || field == "" {
+				errs = append(errs, fmt.Errorf("paas.platform.shares: %q must be component.field", share))
+			}
+		}
+		for _, c := range pl.Components {
+			if c.Preset == "" {
+				errs = append(errs, fmt.Errorf("paas.platform.components.%s needs a preset", c.Slug))
+			}
+		}
 	}
 	return append(errs, p.Pipeline.validate()...)
 }
