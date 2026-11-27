@@ -150,3 +150,31 @@ func TestDeployTokensAndReleases(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, releases, "releases cascade with their environment")
 }
+
+func TestApps(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	at := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, s.UpsertUser(ctx, &domain.User{ID: "dev:cory", Provider: domain.ProviderDev, ProviderUserID: "cory", Login: "cory", CreatedAt: at}))
+	require.NoError(t, s.CreateAccount(ctx, &domain.Account{ID: "acct", OwnerUserID: "dev:cory", OrganizationID: "rs-x", Status: domain.AccountStatusReady, CreatedAt: at, UpdatedAt: at}, domain.Credential{APIKey: "k"}))
+
+	app := &domain.App{ID: "shop", AccountID: "acct", Name: "shop", Runtime: "ruby", CreatedBy: "dev:cory", CreatedAt: at}
+	require.NoError(t, s.CreateApp(ctx, app))
+	require.ErrorIs(t, s.CreateApp(ctx, app), domain.ErrConflict)
+	got, err := s.GetApp(ctx, "shop")
+	require.NoError(t, err)
+	assert.Equal(t, *app, *got)
+	list, err := s.ListApps(ctx, "acct")
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+
+	e := &domain.Environment{ID: "shop-production", AccountID: "acct", Slug: "shop-production", Name: "production", EnvironmentID: "shop-production", Presets: map[string]string{}, State: domain.EnvironmentStateRunning, CreatedBy: "dev:cory", CreatedAt: at, UpdatedAt: at, App: "shop", Preview: true}
+	require.NoError(t, s.CreateEnvironment(ctx, e))
+	stored, err := s.GetEnvironment(ctx, "shop-production")
+	require.NoError(t, err)
+	assert.Equal(t, *e, *stored)
+
+	require.NoError(t, s.DeleteApp(ctx, "shop"))
+	_, err = s.GetApp(ctx, "shop")
+	require.ErrorIs(t, err, domain.ErrNotFound)
+}

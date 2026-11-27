@@ -316,12 +316,12 @@ func (s *Store) GetBootstrapState(ctx context.Context, accountID string) ([]byte
 
 // --- environments ------------------------------------------------------------
 
-const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image, domains, stage, preview`
+const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image, domains, stage, preview, app`
 
 func scanEnvironment(row interface{ Scan(...any) error }) (*domain.Environment, error) {
 	var e domain.Environment
 	var presets, created, updated, addons, domains string
-	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image, &domains, &e.Stage, &e.Preview); err != nil {
+	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image, &domains, &e.Stage, &e.Preview, &e.App); err != nil {
 		return nil, err
 	}
 	if domains != "" {
@@ -358,8 +358,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains, e.Stage, e.Preview)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains, e.Stage, e.Preview, e.App)
 	if isUnique(err) {
 		return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
 	}
@@ -544,6 +544,59 @@ func (s *Store) DeleteToken(ctx context.Context, accountID, id string) error {
 		return fmt.Errorf("%w: deploy token %s", domain.ErrNotFound, id)
 	}
 	return nil
+}
+
+// --- apps --------------------------------------------------------------------
+
+const appColumns = `id, account_id, name, runtime, created_by, created_at`
+
+func scanApp(row interface{ Scan(...any) error }) (*domain.App, error) {
+	var a domain.App
+	var created string
+	if err := row.Scan(&a.ID, &a.AccountID, &a.Name, &a.Runtime, &a.CreatedBy, &created); err != nil {
+		return nil, err
+	}
+	a.CreatedAt = parseTime(created)
+	return &a, nil
+}
+
+func (s *Store) CreateApp(ctx context.Context, a *domain.App) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO apps (`+appColumns+`) VALUES (?, ?, ?, ?, ?, ?)`,
+		a.ID, a.AccountID, a.Name, a.Runtime, a.CreatedBy, fmtTime(a.CreatedAt))
+	if isUnique(err) {
+		return fmt.Errorf("%w: app %s", domain.ErrConflict, a.ID)
+	}
+	return err
+}
+
+func (s *Store) GetApp(ctx context.Context, id string) (*domain.App, error) {
+	a, err := scanApp(s.db.QueryRowContext(ctx, `SELECT `+appColumns+` FROM apps WHERE id = ?`, id))
+	if err != nil {
+		return nil, notFound(err, "app "+id)
+	}
+	return a, nil
+}
+
+func (s *Store) ListApps(ctx context.Context, accountID string) ([]domain.App, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+appColumns+` FROM apps WHERE account_id = ? ORDER BY created_at`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.App{}
+	for rows.Next() {
+		a, err := scanApp(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteApp(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM apps WHERE id = ?`, id)
+	return err
 }
 
 // --- releases ----------------------------------------------------------------

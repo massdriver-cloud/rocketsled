@@ -26,6 +26,9 @@ var _ domain.Platform = &PlatformMock{}
 //			CreateOrganizationFunc: func(ctx context.Context, id string, name string) error {
 //				panic("mock out the CreateOrganization method")
 //			},
+//			CreateProjectFromEnvironmentFunc: func(ctx context.Context, sourceEnvironmentID string, req domain.NewProject) error {
+//				panic("mock out the CreateProjectFromEnvironment method")
+//			},
 //			CreateResourceFunc: func(ctx context.Context, resourceTypeID string, name string, payload map[string]any) (string, error) {
 //				panic("mock out the CreateResource method")
 //			},
@@ -40,6 +43,9 @@ var _ domain.Platform = &PlatformMock{}
 //			},
 //			DeleteEnvironmentFunc: func(ctx context.Context, environmentID string) error {
 //				panic("mock out the DeleteEnvironment method")
+//			},
+//			DeleteProjectFunc: func(ctx context.Context, projectID string) error {
+//				panic("mock out the DeleteProject method")
 //			},
 //			DeployEnvironmentFunc: func(ctx context.Context, environmentID string) error {
 //				panic("mock out the DeployEnvironment method")
@@ -67,6 +73,9 @@ var _ domain.Platform = &PlatformMock{}
 //			},
 //			GrantResourceToProjectFunc: func(ctx context.Context, resourceID string, projectID string) error {
 //				panic("mock out the GrantResourceToProject method")
+//			},
+//			ListProjectsFunc: func(ctx context.Context) ([]domain.Project, error) {
+//				panic("mock out the ListProjects method")
 //			},
 //			PingFunc: func(ctx context.Context) (string, error) {
 //				panic("mock out the Ping method")
@@ -96,6 +105,9 @@ type PlatformMock struct {
 	// CreateOrganizationFunc mocks the CreateOrganization method.
 	CreateOrganizationFunc func(ctx context.Context, id string, name string) error
 
+	// CreateProjectFromEnvironmentFunc mocks the CreateProjectFromEnvironment method.
+	CreateProjectFromEnvironmentFunc func(ctx context.Context, sourceEnvironmentID string, req domain.NewProject) error
+
 	// CreateResourceFunc mocks the CreateResource method.
 	CreateResourceFunc func(ctx context.Context, resourceTypeID string, name string, payload map[string]any) (string, error)
 
@@ -110,6 +122,9 @@ type PlatformMock struct {
 
 	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
 	DeleteEnvironmentFunc func(ctx context.Context, environmentID string) error
+
+	// DeleteProjectFunc mocks the DeleteProject method.
+	DeleteProjectFunc func(ctx context.Context, projectID string) error
 
 	// DeployEnvironmentFunc mocks the DeployEnvironment method.
 	DeployEnvironmentFunc func(ctx context.Context, environmentID string) error
@@ -137,6 +152,9 @@ type PlatformMock struct {
 
 	// GrantResourceToProjectFunc mocks the GrantResourceToProject method.
 	GrantResourceToProjectFunc func(ctx context.Context, resourceID string, projectID string) error
+
+	// ListProjectsFunc mocks the ListProjects method.
+	ListProjectsFunc func(ctx context.Context) ([]domain.Project, error)
 
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) (string, error)
@@ -174,6 +192,15 @@ type PlatformMock struct {
 			ID string
 			// Name is the name argument value.
 			Name string
+		}
+		// CreateProjectFromEnvironment holds details about calls to the CreateProjectFromEnvironment method.
+		CreateProjectFromEnvironment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SourceEnvironmentID is the sourceEnvironmentID argument value.
+			SourceEnvironmentID string
+			// Req is the req argument value.
+			Req domain.NewProject
 		}
 		// CreateResource holds details about calls to the CreateResource method.
 		CreateResource []struct {
@@ -217,6 +244,13 @@ type PlatformMock struct {
 			Ctx context.Context
 			// EnvironmentID is the environmentID argument value.
 			EnvironmentID string
+		}
+		// DeleteProject holds details about calls to the DeleteProject method.
+		DeleteProject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// DeployEnvironment holds details about calls to the DeployEnvironment method.
 		DeployEnvironment []struct {
@@ -287,6 +321,11 @@ type PlatformMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
+		// ListProjects holds details about calls to the ListProjects method.
+		ListProjects []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Ping holds details about calls to the Ping method.
 		Ping []struct {
 			// Ctx is the ctx argument value.
@@ -331,27 +370,30 @@ type PlatformMock struct {
 			Message string
 		}
 	}
-	lockCopyInstance              sync.RWMutex
-	lockCreateOrganization        sync.RWMutex
-	lockCreateResource            sync.RWMutex
-	lockCreateServiceAccount      sync.RWMutex
-	lockDecommissionEnvironment   sync.RWMutex
-	lockDecommissionInstance      sync.RWMutex
-	lockDeleteEnvironment         sync.RWMutex
-	lockDeployEnvironment         sync.RWMutex
-	lockDeployInstance            sync.RWMutex
-	lockDeploymentStatus          sync.RWMutex
-	lockEnvironmentDefaults       sync.RWMutex
-	lockForkEnvironment           sync.RWMutex
-	lockGetEnvironment            sync.RWMutex
-	lockGetProject                sync.RWMutex
-	lockGrantResource             sync.RWMutex
-	lockGrantResourceToProject    sync.RWMutex
-	lockPing                      sync.RWMutex
-	lockSetEnvironmentDefault     sync.RWMutex
-	lockSetEnvironmentDescription sync.RWMutex
-	lockSetInstanceVersion        sync.RWMutex
-	lockStartDeployment           sync.RWMutex
+	lockCopyInstance                 sync.RWMutex
+	lockCreateOrganization           sync.RWMutex
+	lockCreateProjectFromEnvironment sync.RWMutex
+	lockCreateResource               sync.RWMutex
+	lockCreateServiceAccount         sync.RWMutex
+	lockDecommissionEnvironment      sync.RWMutex
+	lockDecommissionInstance         sync.RWMutex
+	lockDeleteEnvironment            sync.RWMutex
+	lockDeleteProject                sync.RWMutex
+	lockDeployEnvironment            sync.RWMutex
+	lockDeployInstance               sync.RWMutex
+	lockDeploymentStatus             sync.RWMutex
+	lockEnvironmentDefaults          sync.RWMutex
+	lockForkEnvironment              sync.RWMutex
+	lockGetEnvironment               sync.RWMutex
+	lockGetProject                   sync.RWMutex
+	lockGrantResource                sync.RWMutex
+	lockGrantResourceToProject       sync.RWMutex
+	lockListProjects                 sync.RWMutex
+	lockPing                         sync.RWMutex
+	lockSetEnvironmentDefault        sync.RWMutex
+	lockSetEnvironmentDescription    sync.RWMutex
+	lockSetInstanceVersion           sync.RWMutex
+	lockStartDeployment              sync.RWMutex
 }
 
 // CopyInstance calls CopyInstanceFunc.
@@ -441,6 +483,49 @@ func (mock *PlatformMock) CreateOrganizationCalls() []struct {
 	mock.lockCreateOrganization.RLock()
 	calls = mock.calls.CreateOrganization
 	mock.lockCreateOrganization.RUnlock()
+	return calls
+}
+
+// CreateProjectFromEnvironment calls CreateProjectFromEnvironmentFunc.
+func (mock *PlatformMock) CreateProjectFromEnvironment(ctx context.Context, sourceEnvironmentID string, req domain.NewProject) error {
+	callInfo := struct {
+		Ctx                 context.Context
+		SourceEnvironmentID string
+		Req                 domain.NewProject
+	}{
+		Ctx:                 ctx,
+		SourceEnvironmentID: sourceEnvironmentID,
+		Req:                 req,
+	}
+	mock.lockCreateProjectFromEnvironment.Lock()
+	mock.calls.CreateProjectFromEnvironment = append(mock.calls.CreateProjectFromEnvironment, callInfo)
+	mock.lockCreateProjectFromEnvironment.Unlock()
+	if mock.CreateProjectFromEnvironmentFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateProjectFromEnvironmentFunc(ctx, sourceEnvironmentID, req)
+}
+
+// CreateProjectFromEnvironmentCalls gets all the calls that were made to CreateProjectFromEnvironment.
+// Check the length with:
+//
+//	len(mockedPlatform.CreateProjectFromEnvironmentCalls())
+func (mock *PlatformMock) CreateProjectFromEnvironmentCalls() []struct {
+	Ctx                 context.Context
+	SourceEnvironmentID string
+	Req                 domain.NewProject
+} {
+	var calls []struct {
+		Ctx                 context.Context
+		SourceEnvironmentID string
+		Req                 domain.NewProject
+	}
+	mock.lockCreateProjectFromEnvironment.RLock()
+	calls = mock.calls.CreateProjectFromEnvironment
+	mock.lockCreateProjectFromEnvironment.RUnlock()
 	return calls
 }
 
@@ -654,6 +739,45 @@ func (mock *PlatformMock) DeleteEnvironmentCalls() []struct {
 	mock.lockDeleteEnvironment.RLock()
 	calls = mock.calls.DeleteEnvironment
 	mock.lockDeleteEnvironment.RUnlock()
+	return calls
+}
+
+// DeleteProject calls DeleteProjectFunc.
+func (mock *PlatformMock) DeleteProject(ctx context.Context, projectID string) error {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+	}
+	mock.lockDeleteProject.Lock()
+	mock.calls.DeleteProject = append(mock.calls.DeleteProject, callInfo)
+	mock.lockDeleteProject.Unlock()
+	if mock.DeleteProjectFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.DeleteProjectFunc(ctx, projectID)
+}
+
+// DeleteProjectCalls gets all the calls that were made to DeleteProject.
+// Check the length with:
+//
+//	len(mockedPlatform.DeleteProjectCalls())
+func (mock *PlatformMock) DeleteProjectCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+	}
+	mock.lockDeleteProject.RLock()
+	calls = mock.calls.DeleteProject
+	mock.lockDeleteProject.RUnlock()
 	return calls
 }
 
@@ -1022,6 +1146,42 @@ func (mock *PlatformMock) GrantResourceToProjectCalls() []struct {
 	mock.lockGrantResourceToProject.RLock()
 	calls = mock.calls.GrantResourceToProject
 	mock.lockGrantResourceToProject.RUnlock()
+	return calls
+}
+
+// ListProjects calls ListProjectsFunc.
+func (mock *PlatformMock) ListProjects(ctx context.Context) ([]domain.Project, error) {
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockListProjects.Lock()
+	mock.calls.ListProjects = append(mock.calls.ListProjects, callInfo)
+	mock.lockListProjects.Unlock()
+	if mock.ListProjectsFunc == nil {
+		var (
+			projectsOut []domain.Project
+			errOut      error
+		)
+		return projectsOut, errOut
+	}
+	return mock.ListProjectsFunc(ctx)
+}
+
+// ListProjectsCalls gets all the calls that were made to ListProjects.
+// Check the length with:
+//
+//	len(mockedPlatform.ListProjectsCalls())
+func (mock *PlatformMock) ListProjectsCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockListProjects.RLock()
+	calls = mock.calls.ListProjects
+	mock.lockListProjects.RUnlock()
 	return calls
 }
 
@@ -1480,6 +1640,9 @@ var _ domain.Store = &StoreMock{}
 //			CreateAccountFunc: func(ctx context.Context, a *domain.Account, credential domain.Credential) error {
 //				panic("mock out the CreateAccount method")
 //			},
+//			CreateAppFunc: func(ctx context.Context, a *domain.App) error {
+//				panic("mock out the CreateApp method")
+//			},
 //			CreateEnvironmentFunc: func(ctx context.Context, e *domain.Environment) error {
 //				panic("mock out the CreateEnvironment method")
 //			},
@@ -1491,6 +1654,9 @@ var _ domain.Store = &StoreMock{}
 //			},
 //			CreateTokenFunc: func(ctx context.Context, t *domain.Token, hash string) error {
 //				panic("mock out the CreateToken method")
+//			},
+//			DeleteAppFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the DeleteApp method")
 //			},
 //			DeleteEnvironmentFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the DeleteEnvironment method")
@@ -1507,6 +1673,9 @@ var _ domain.Store = &StoreMock{}
 //			GetAccountCredentialFunc: func(ctx context.Context, accountID string) (domain.Credential, error) {
 //				panic("mock out the GetAccountCredential method")
 //			},
+//			GetAppFunc: func(ctx context.Context, id string) (*domain.App, error) {
+//				panic("mock out the GetApp method")
+//			},
 //			GetBootstrapStateFunc: func(ctx context.Context, accountID string) ([]byte, error) {
 //				panic("mock out the GetBootstrapState method")
 //			},
@@ -1521,6 +1690,9 @@ var _ domain.Store = &StoreMock{}
 //			},
 //			ListAccountsFunc: func(ctx context.Context, status domain.AccountStatus) ([]domain.Account, error) {
 //				panic("mock out the ListAccounts method")
+//			},
+//			ListAppsFunc: func(ctx context.Context, accountID string) ([]domain.App, error) {
+//				panic("mock out the ListApps method")
 //			},
 //			ListEnvironmentsFunc: func(ctx context.Context, accountID string) ([]domain.Environment, error) {
 //				panic("mock out the ListEnvironments method")
@@ -1562,6 +1734,9 @@ type StoreMock struct {
 	// CreateAccountFunc mocks the CreateAccount method.
 	CreateAccountFunc func(ctx context.Context, a *domain.Account, credential domain.Credential) error
 
+	// CreateAppFunc mocks the CreateApp method.
+	CreateAppFunc func(ctx context.Context, a *domain.App) error
+
 	// CreateEnvironmentFunc mocks the CreateEnvironment method.
 	CreateEnvironmentFunc func(ctx context.Context, e *domain.Environment) error
 
@@ -1573,6 +1748,9 @@ type StoreMock struct {
 
 	// CreateTokenFunc mocks the CreateToken method.
 	CreateTokenFunc func(ctx context.Context, t *domain.Token, hash string) error
+
+	// DeleteAppFunc mocks the DeleteApp method.
+	DeleteAppFunc func(ctx context.Context, id string) error
 
 	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
 	DeleteEnvironmentFunc func(ctx context.Context, id string) error
@@ -1589,6 +1767,9 @@ type StoreMock struct {
 	// GetAccountCredentialFunc mocks the GetAccountCredential method.
 	GetAccountCredentialFunc func(ctx context.Context, accountID string) (domain.Credential, error)
 
+	// GetAppFunc mocks the GetApp method.
+	GetAppFunc func(ctx context.Context, id string) (*domain.App, error)
+
 	// GetBootstrapStateFunc mocks the GetBootstrapState method.
 	GetBootstrapStateFunc func(ctx context.Context, accountID string) ([]byte, error)
 
@@ -1603,6 +1784,9 @@ type StoreMock struct {
 
 	// ListAccountsFunc mocks the ListAccounts method.
 	ListAccountsFunc func(ctx context.Context, status domain.AccountStatus) ([]domain.Account, error)
+
+	// ListAppsFunc mocks the ListApps method.
+	ListAppsFunc func(ctx context.Context, accountID string) ([]domain.App, error)
 
 	// ListEnvironmentsFunc mocks the ListEnvironments method.
 	ListEnvironmentsFunc func(ctx context.Context, accountID string) ([]domain.Environment, error)
@@ -1645,6 +1829,13 @@ type StoreMock struct {
 			// Credential is the credential argument value.
 			Credential domain.Credential
 		}
+		// CreateApp holds details about calls to the CreateApp method.
+		CreateApp []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// A is the a argument value.
+			A *domain.App
+		}
 		// CreateEnvironment holds details about calls to the CreateEnvironment method.
 		CreateEnvironment []struct {
 			// Ctx is the ctx argument value.
@@ -1674,6 +1865,13 @@ type StoreMock struct {
 			T *domain.Token
 			// Hash is the hash argument value.
 			Hash string
+		}
+		// DeleteApp holds details about calls to the DeleteApp method.
+		DeleteApp []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
 		}
 		// DeleteEnvironment holds details about calls to the DeleteEnvironment method.
 		DeleteEnvironment []struct {
@@ -1712,6 +1910,13 @@ type StoreMock struct {
 			// AccountID is the accountID argument value.
 			AccountID string
 		}
+		// GetApp holds details about calls to the GetApp method.
+		GetApp []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
 		// GetBootstrapState holds details about calls to the GetBootstrapState method.
 		GetBootstrapState []struct {
 			// Ctx is the ctx argument value.
@@ -1746,6 +1951,13 @@ type StoreMock struct {
 			Ctx context.Context
 			// Status is the status argument value.
 			Status domain.AccountStatus
+		}
+		// ListApps holds details about calls to the ListApps method.
+		ListApps []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// AccountID is the accountID argument value.
+			AccountID string
 		}
 		// ListEnvironments holds details about calls to the ListEnvironments method.
 		ListEnvironments []struct {
@@ -1827,20 +2039,24 @@ type StoreMock struct {
 		}
 	}
 	lockCreateAccount        sync.RWMutex
+	lockCreateApp            sync.RWMutex
 	lockCreateEnvironment    sync.RWMutex
 	lockCreateRelease        sync.RWMutex
 	lockCreateRun            sync.RWMutex
 	lockCreateToken          sync.RWMutex
+	lockDeleteApp            sync.RWMutex
 	lockDeleteEnvironment    sync.RWMutex
 	lockDeleteToken          sync.RWMutex
 	lockGetAccount           sync.RWMutex
 	lockGetAccountByOwner    sync.RWMutex
 	lockGetAccountCredential sync.RWMutex
+	lockGetApp               sync.RWMutex
 	lockGetBootstrapState    sync.RWMutex
 	lockGetEnvironment       sync.RWMutex
 	lockGetTokenByHash       sync.RWMutex
 	lockGetUser              sync.RWMutex
 	lockListAccounts         sync.RWMutex
+	lockListApps             sync.RWMutex
 	lockListEnvironments     sync.RWMutex
 	lockListReleases         sync.RWMutex
 	lockListRuns             sync.RWMutex
@@ -1893,6 +2109,45 @@ func (mock *StoreMock) CreateAccountCalls() []struct {
 	mock.lockCreateAccount.RLock()
 	calls = mock.calls.CreateAccount
 	mock.lockCreateAccount.RUnlock()
+	return calls
+}
+
+// CreateApp calls CreateAppFunc.
+func (mock *StoreMock) CreateApp(ctx context.Context, a *domain.App) error {
+	callInfo := struct {
+		Ctx context.Context
+		A   *domain.App
+	}{
+		Ctx: ctx,
+		A:   a,
+	}
+	mock.lockCreateApp.Lock()
+	mock.calls.CreateApp = append(mock.calls.CreateApp, callInfo)
+	mock.lockCreateApp.Unlock()
+	if mock.CreateAppFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.CreateAppFunc(ctx, a)
+}
+
+// CreateAppCalls gets all the calls that were made to CreateApp.
+// Check the length with:
+//
+//	len(mockedStore.CreateAppCalls())
+func (mock *StoreMock) CreateAppCalls() []struct {
+	Ctx context.Context
+	A   *domain.App
+} {
+	var calls []struct {
+		Ctx context.Context
+		A   *domain.App
+	}
+	mock.lockCreateApp.RLock()
+	calls = mock.calls.CreateApp
+	mock.lockCreateApp.RUnlock()
 	return calls
 }
 
@@ -2053,6 +2308,45 @@ func (mock *StoreMock) CreateTokenCalls() []struct {
 	mock.lockCreateToken.RLock()
 	calls = mock.calls.CreateToken
 	mock.lockCreateToken.RUnlock()
+	return calls
+}
+
+// DeleteApp calls DeleteAppFunc.
+func (mock *StoreMock) DeleteApp(ctx context.Context, id string) error {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockDeleteApp.Lock()
+	mock.calls.DeleteApp = append(mock.calls.DeleteApp, callInfo)
+	mock.lockDeleteApp.Unlock()
+	if mock.DeleteAppFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.DeleteAppFunc(ctx, id)
+}
+
+// DeleteAppCalls gets all the calls that were made to DeleteApp.
+// Check the length with:
+//
+//	len(mockedStore.DeleteAppCalls())
+func (mock *StoreMock) DeleteAppCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockDeleteApp.RLock()
+	calls = mock.calls.DeleteApp
+	mock.lockDeleteApp.RUnlock()
 	return calls
 }
 
@@ -2258,6 +2552,46 @@ func (mock *StoreMock) GetAccountCredentialCalls() []struct {
 	return calls
 }
 
+// GetApp calls GetAppFunc.
+func (mock *StoreMock) GetApp(ctx context.Context, id string) (*domain.App, error) {
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockGetApp.Lock()
+	mock.calls.GetApp = append(mock.calls.GetApp, callInfo)
+	mock.lockGetApp.Unlock()
+	if mock.GetAppFunc == nil {
+		var (
+			appOut *domain.App
+			errOut error
+		)
+		return appOut, errOut
+	}
+	return mock.GetAppFunc(ctx, id)
+}
+
+// GetAppCalls gets all the calls that were made to GetApp.
+// Check the length with:
+//
+//	len(mockedStore.GetAppCalls())
+func (mock *StoreMock) GetAppCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockGetApp.RLock()
+	calls = mock.calls.GetApp
+	mock.lockGetApp.RUnlock()
+	return calls
+}
+
 // GetBootstrapState calls GetBootstrapStateFunc.
 func (mock *StoreMock) GetBootstrapState(ctx context.Context, accountID string) ([]byte, error) {
 	callInfo := struct {
@@ -2455,6 +2789,46 @@ func (mock *StoreMock) ListAccountsCalls() []struct {
 	mock.lockListAccounts.RLock()
 	calls = mock.calls.ListAccounts
 	mock.lockListAccounts.RUnlock()
+	return calls
+}
+
+// ListApps calls ListAppsFunc.
+func (mock *StoreMock) ListApps(ctx context.Context, accountID string) ([]domain.App, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		AccountID string
+	}{
+		Ctx:       ctx,
+		AccountID: accountID,
+	}
+	mock.lockListApps.Lock()
+	mock.calls.ListApps = append(mock.calls.ListApps, callInfo)
+	mock.lockListApps.Unlock()
+	if mock.ListAppsFunc == nil {
+		var (
+			appsOut []domain.App
+			errOut  error
+		)
+		return appsOut, errOut
+	}
+	return mock.ListAppsFunc(ctx, accountID)
+}
+
+// ListAppsCalls gets all the calls that were made to ListApps.
+// Check the length with:
+//
+//	len(mockedStore.ListAppsCalls())
+func (mock *StoreMock) ListAppsCalls() []struct {
+	Ctx       context.Context
+	AccountID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		AccountID string
+	}
+	mock.lockListApps.RLock()
+	calls = mock.calls.ListApps
+	mock.lockListApps.RUnlock()
 	return calls
 }
 

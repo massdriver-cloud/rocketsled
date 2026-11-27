@@ -25,6 +25,7 @@ type Store struct {
 	tokens       map[string]domain.Token
 	tokenHashes  map[string]string
 	releases     map[string]domain.Release
+	apps         map[string]domain.App
 }
 
 var _ domain.Store = (*Store)(nil)
@@ -41,6 +42,7 @@ func New() *Store {
 		tokens:       map[string]domain.Token{},
 		tokenHashes:  map[string]string{},
 		releases:     map[string]domain.Release{},
+		apps:         map[string]domain.App{},
 	}
 }
 
@@ -345,4 +347,46 @@ func (s *Store) ListReleases(_ context.Context, environmentID string, limit int)
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+func (s *Store) CreateApp(_ context.Context, a *domain.App) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.apps[a.ID]; ok {
+		return fmt.Errorf("%w: app %s", domain.ErrConflict, a.ID)
+	}
+	stored := *a
+	stored.Environments = nil
+	s.apps[a.ID] = stored
+	return nil
+}
+
+func (s *Store) GetApp(_ context.Context, id string) (*domain.App, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	a, ok := s.apps[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: app %s", domain.ErrNotFound, id)
+	}
+	return &a, nil
+}
+
+func (s *Store) ListApps(_ context.Context, accountID string) ([]domain.App, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.App{}
+	for _, a := range s.apps {
+		if a.AccountID == accountID {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *Store) DeleteApp(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.apps, id)
+	return nil
 }

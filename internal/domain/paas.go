@@ -57,6 +57,9 @@ type Runtime struct {
 	Template     string `json:"template"`
 	AppComponent string `json:"appComponent,omitempty"`
 	ImageParam   string `json:"imageParam,omitempty"`
+	// AppProjects gives each app its own project, made from the template; its
+	// environments fork that project's template.
+	AppProjects bool `json:"appProjects,omitempty"`
 	// Pinned applies over PaaS.Pinned for this runtime's apps.
 	Pinned map[string]map[string]any `json:"-"`
 }
@@ -86,12 +89,14 @@ type Offer struct {
 // RuntimeOffer is a runtime with the components every app of it gets and the
 // add-ons it may pick.
 type RuntimeOffer struct {
-	ID         string             `json:"id"`
-	Name       string             `json:"name"`
-	Summary    string             `json:"summary,omitempty"`
-	Project    string             `json:"project"`
-	Components []OfferedComponent `json:"components"`
-	Addons     []OfferedComponent `json:"addons"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Summary string `json:"summary,omitempty"`
+	Project string `json:"project"`
+	// AppProjects gives each app its own project, made from the template.
+	AppProjects bool               `json:"appProjects,omitempty"`
+	Components  []OfferedComponent `json:"components"`
+	Addons      []OfferedComponent `json:"addons"`
 	// Domains is true when the runtime has the component custom domains land on.
 	Domains bool           `json:"domains"`
 	Stages  []OfferedStage `json:"stages"`
@@ -192,7 +197,7 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 		instances[pi.ComponentSlug] = pi
 	}
 	ro := &RuntimeOffer{
-		ID: rt.ID, Name: rt.Name, Summary: rt.Summary, Project: rt.Project, Components: []OfferedComponent{}, Addons: []OfferedComponent{},
+		ID: rt.ID, Name: rt.Name, Summary: rt.Summary, Project: rt.Project, AppProjects: rt.AppProjects, Components: []OfferedComponent{}, Addons: []OfferedComponent{},
 		links: project.Links, presets: map[string]map[string]map[string]any{},
 	}
 	for _, c := range dependencyOrder(project.Components, project.Links) {
@@ -235,10 +240,31 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 		order[a.ID] = i
 	}
 	slices.SortStableFunc(ro.Addons, func(a, b OfferedComponent) int { return order[a.Slug] - order[b.Slug] })
+	if rt.AppProjects {
+		if err := sharedOnlyByDefaults(rt, ro, instances); err != nil {
+			return nil, err
+		}
+	}
 	if ro.Stages, ro.Promote, err = s.stageOffer(rt, ro); err != nil {
 		return nil, err
 	}
 	return ro, nil
+}
+
+// sharedOnlyByDefaults refuses a runtime whose shared components reach an
+// app's components through a link: an app's own project gets an undeployed
+// copy of a shared component, so only an environment default reaches it.
+func sharedOnlyByDefaults(rt Runtime, ro *RuntimeOffer, instances map[string]PlatformInstance) error {
+	offered := func(slug string) bool {
+		has := func(c OfferedComponent) bool { return c.Slug == slug }
+		return slices.ContainsFunc(ro.Components, has) || slices.ContainsFunc(ro.Addons, has)
+	}
+	for _, l := range ro.links {
+		if pi, ok := instances[l.From]; ok && strings.EqualFold(pi.Status, "PROVISIONED") && offered(l.To) {
+			return fmt.Errorf("runtime %s gives each app its own project, but its shared %s is linked to %s; share it as an environment default on %s instead", rt.ID, l.From, l.To, templateID(rt))
+		}
+	}
+	return nil
 }
 
 // presetParams are a component's params for a preset, without its label.
@@ -283,6 +309,17 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	if in.Slug == "template" {
 		return nil, Invalid("slug", "that name is reserved")
 	}
+	var app *App
+	if in.App != "" {
+		var err error
+		if app, err = s.ownedApp(ctx, account, in.App); err != nil {
+			return nil, Invalid("app", "pick one of your apps")
+		}
+		if in.Runtime != "" && in.Runtime != app.Runtime {
+			return nil, Invalid("app", "%s runs %s, not %s", app.Name, app.Runtime, in.Runtime)
+		}
+		in.Runtime = app.Runtime
+	}
 	offer, err := s.Offer(ctx)
 	if err != nil {
 		return nil, err
@@ -292,6 +329,18 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		return nil, Invalid("runtime", "pick a runtime")
 	}
 	rt := s.runtimeConfig(in.Runtime)
+	project, parent := rt.Project, templateID(rt)
+	if rt.AppProjects {
+		if app == nil {
+			return nil, Invalid("app", "pick the app this environment belongs to")
+		}
+		project, parent = app.ID, app.templateID()
+		// An app adopted after its creation failed part way may still miss
+		// some of the runtime template's defaults; copying is idempotent.
+		if err := s.copyDefaults(ctx, s.platforms(s.shared), templateID(rt), app); err != nil {
+			return nil, err
+		}
+	}
 	stageDefaults := map[string]string{}
 	if in.Stage != "" {
 		i := slices.IndexFunc(ro.Stages, func(st OfferedStage) bool { return st.ID == in.Stage })
@@ -342,12 +391,12 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	if err := s.checkLimits(ctx, platform, account); err != nil {
 		return nil, err
 	}
-	envID := rt.Project + "-" + in.Slug
+	envID := project + "-" + in.Slug
 	if _, err := platform.GetEnvironment(ctx, envID); err == nil {
 		return nil, Invalid("slug", "%s is taken; try another name", in.Slug)
 	}
 	forked, err := platform.ForkEnvironment(ctx, ForkRequest{
-		ParentEnvironmentID:     templateID(rt),
+		ParentEnvironmentID:     parent,
 		ID:                      in.Slug,
 		Name:                    in.Name,
 		Description:             describeApp(user.Login, account.OwnerUserID, in.Stage, pickedPresets(picked, presets), in.Preview),
@@ -365,10 +414,17 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	for _, c := range picked {
 		names[c.Slug] = presets[c.Slug].Name
 	}
+	slug := in.Slug
+	if rt.AppProjects {
+		slug = appEnvironmentSlug(project, in.Slug)
+	}
 	env := &Environment{
-		ID: forked.ID, AccountID: account.ID, Slug: in.Slug, Name: in.Name, EnvironmentID: forked.ID,
+		ID: forked.ID, AccountID: account.ID, Slug: slug, Name: in.Name, EnvironmentID: forked.ID,
 		Presets: names, Runtime: rt.ID, Addons: addons, Stage: in.Stage, State: EnvironmentStateDeploying,
 		Preview: in.Preview, Image: in.Image, CreatedBy: user.ID, CreatedAt: now, UpdatedAt: now,
+	}
+	if rt.AppProjects {
+		env.App = project
 	}
 	if err := s.store.CreateEnvironment(ctx, env); err != nil {
 		return nil, err
@@ -646,7 +702,7 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 		return
 	}
 	platform := s.platforms(s.shared)
-	all, runtimeOf, err := s.madeHere(ctx, platform)
+	all, where, err := s.madeHere(ctx, platform)
 	if err != nil {
 		s.log.Warn("resume: listing apps", "err", err)
 		return
@@ -661,7 +717,7 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 		if len(picks) == 0 || s.now().Sub(e.CreatedAt) > 6*time.Hour {
 			continue
 		}
-		rt := runtimeOf[e.ID]
+		rt := where[e.ID].Runtime
 		ro, ok := offer.runtime(rt.ID)
 		if !ok {
 			continue
@@ -683,7 +739,7 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 		// domains; one adopted from Massdriver is rebuilt from its description.
 		env, err := s.store.GetEnvironment(ctx, e.ID)
 		if err != nil {
-			env = &Environment{ID: e.ID, EnvironmentID: e.ID, Slug: strings.TrimPrefix(e.ID, rt.Project+"-"), Runtime: rt.ID}
+			env = &Environment{ID: e.ID, EnvironmentID: e.ID, Slug: adoptedSlug(e.ID, where[e.ID]), Runtime: rt.ID, App: appOf(where[e.ID])}
 		}
 		params := map[string]map[string]any{}
 		for _, c := range append(append([]OfferedComponent{}, ro.Components...), ro.Addons...) {
@@ -719,10 +775,18 @@ func ownerOf(description string) string {
 	return ""
 }
 
-// madeHere lists every environment this server made, across its runtimes.
-func (s *Service) madeHere(ctx context.Context, platform Platform) ([]EnvironmentSummary, map[string]Runtime, error) {
+// madeIn says where an environment this server made lives.
+type madeIn struct {
+	Runtime Runtime
+	// Project is the runtime's project, or the app's own project.
+	Project string
+}
+
+// madeHere lists every environment this server made, across its runtimes and
+// the apps that have their own project.
+func (s *Service) madeHere(ctx context.Context, platform Platform) ([]EnvironmentSummary, map[string]madeIn, error) {
 	var out []EnvironmentSummary
-	runtimeOf := map[string]Runtime{}
+	where := map[string]madeIn{}
 	seen := map[string]bool{}
 	for _, rt := range s.paas.Runtimes {
 		if seen[rt.Project] {
@@ -736,11 +800,26 @@ func (s *Service) madeHere(ctx context.Context, platform Platform) ([]Environmen
 		for _, e := range project.Environments {
 			if ownerOf(e.Description) != "" {
 				out = append(out, e)
-				runtimeOf[e.ID] = rt
+				where[e.ID] = madeIn{Runtime: rt, Project: rt.Project}
 			}
 		}
 	}
-	return out, runtimeOf, nil
+	if !s.appProjects() {
+		return out, where, nil
+	}
+	apps, err := s.appsHere(ctx, platform)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, app := range apps {
+		for _, e := range app.environments {
+			if ownerOf(e.Description) != "" {
+				out = append(out, e)
+				where[e.ID] = madeIn{Runtime: s.runtimeConfig(app.Runtime), Project: app.ID}
+			}
+		}
+	}
+	return out, where, nil
 }
 
 func (s *Service) checkLimits(ctx context.Context, platform Platform, account *Account) error {
@@ -772,7 +851,7 @@ func (s *Service) checkLimits(ctx context.Context, platform Platform, account *A
 // that are gone.
 func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 	platform := s.platforms(s.shared)
-	all, runtimeOf, err := s.madeHere(ctx, platform)
+	all, where, err := s.madeHere(ctx, platform)
 	if err != nil {
 		return err
 	}
@@ -801,10 +880,11 @@ func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 		if err != nil {
 			continue
 		}
-		rt := runtimeOf[id]
+		rt := where[id].Runtime
 		env := &Environment{
-			ID: id, AccountID: account.ID, Slug: strings.TrimPrefix(id, rt.Project+"-"), Name: summary.Name, EnvironmentID: id,
+			ID: id, AccountID: account.ID, Slug: adoptedSlug(id, where[id]), Name: summary.Name, EnvironmentID: id,
 			Presets: map[string]string{}, Runtime: rt.ID, Stage: stageOf(summary.Description), State: EnvironmentStateDeploying, Preview: strings.Contains(summary.Description, previewMarker),
+			App:       appOf(where[id]),
 			CreatedBy: account.OwnerUserID, CreatedAt: summary.CreatedAt, UpdatedAt: s.now(),
 		}
 		tmpl := map[string]bool{}
@@ -862,6 +942,13 @@ func releasedImage(live *PlatformEnvironment, rt Runtime, pinned map[string]any)
 		}
 	}
 	return ""
+}
+
+func adoptedSlug(id string, m madeIn) string {
+	if appOf(m) != "" {
+		return id
+	}
+	return strings.TrimPrefix(id, m.Project+"-")
 }
 
 // ReapExpired removes apps older than the TTL and deletes the ones whose

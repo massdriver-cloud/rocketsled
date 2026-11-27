@@ -13,8 +13,10 @@ import (
 type PreviewInput struct {
 	Image       string `json:"image"`
 	Description string `json:"description,omitempty"`
-	// Runtime is required when the PaaS offers more than one.
+	// Runtime is required when the PaaS offers more than one. App is required,
+	// and decides the runtime, when the runtime gives each app its own project.
 	Runtime string `json:"runtime,omitempty"`
+	App     string `json:"app,omitempty"`
 }
 
 // Preview makes the app named name with the preview presets if it doesn't
@@ -28,13 +30,22 @@ func (s *Service) Preview(ctx context.Context, user *User, account *Account, nam
 	if !ValidSlug(name) || name == "template" {
 		return nil, Invalid("name", "use 1-20 lowercase letters or digits, like pr123")
 	}
-	existing, err := s.environmentByRef(ctx, account, name)
+	slug := name
+	if in.App != "" {
+		app, err := s.ownedApp(ctx, account, in.App)
+		if err != nil {
+			return nil, Invalid("app", "pick one of your apps")
+		}
+		in.Runtime = app.Runtime
+		slug = appEnvironmentSlug(app.ID, name)
+	}
+	existing, err := s.environmentByRef(ctx, account, slug)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
 	if existing != nil {
 		if !existing.Preview {
-			return nil, fmt.Errorf("%w: %s is not a preview", ErrConflict, name)
+			return nil, fmt.Errorf("%w: %s is not a preview", ErrConflict, slug)
 		}
 		return s.Release(ctx, user, account, existing.ID, ReleaseInput{Image: in.Image, Description: in.Description})
 	}
@@ -84,7 +95,7 @@ func (s *Service) Preview(ctx context.Context, user *User, account *Account, nam
 	slices.Sort(addons)
 	description := strings.TrimSpace(in.Description)
 	env, err := s.CreateEnvironment(ctx, user, account, CreateEnvironmentInput{
-		Slug: name, Name: name, Runtime: rt.ID, Presets: presets, Addons: addons, Preview: true, Image: image,
+		Slug: name, Name: name, Runtime: rt.ID, App: in.App, Presets: presets, Addons: addons, Preview: true, Image: image,
 	})
 	if err != nil {
 		return nil, err
@@ -104,11 +115,16 @@ func (s *Service) Preview(ctx context.Context, user *User, account *Account, nam
 }
 
 // DeletePreview removes a preview, when its pull request closes, say.
-func (s *Service) DeletePreview(ctx context.Context, account *Account, name string) (*Environment, error) {
+// app names the app project the preview lives in, when its runtime gives apps one.
+func (s *Service) DeletePreview(ctx context.Context, account *Account, name, app string) (*Environment, error) {
 	if !s.tenant() || s.paas.Previews == nil {
 		return nil, fmt.Errorf("%w: previews are not offered here", ErrNotFound)
 	}
-	env, err := s.environmentByRef(ctx, account, strings.ToLower(strings.TrimSpace(name)))
+	ref := strings.ToLower(strings.TrimSpace(name))
+	if app != "" {
+		ref = appEnvironmentSlug(app, ref)
+	}
+	env, err := s.environmentByRef(ctx, account, ref)
 	if err != nil {
 		return nil, err
 	}

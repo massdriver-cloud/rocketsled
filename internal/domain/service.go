@@ -767,10 +767,12 @@ type CreateEnvironmentInput struct {
 	Slug    string            `json:"slug"`
 	Name    string            `json:"name"`
 	Presets map[string]string `json:"presets"`
-	// Runtime, Addons and Stage apply in tenant mode.
+	// Runtime, Addons and Stage apply in tenant mode. App is required, and
+	// decides the runtime, when the runtime gives each app its own project.
 	Runtime string   `json:"runtime,omitempty"`
 	Addons  []string `json:"addons,omitempty"`
 	Stage   string   `json:"stage,omitempty"`
+	App     string   `json:"app,omitempty"`
 	// Preview and Image come from a build making a preview, never from a request body.
 	Preview bool   `json:"-"`
 	Image   string `json:"-"`

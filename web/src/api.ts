@@ -1,4 +1,5 @@
 import type {
+  AppProject,
   DeployToken,
   DomainsView,
   Release,
@@ -51,7 +52,10 @@ export const api = {
   passwordLogin: (login: string, password: string) => request<User>("/auth/password", { method: "POST", body: JSON.stringify({ login, password }) }),
   signUp: (login: string) => request<User>("/auth/signup", { method: "POST", body: JSON.stringify({ login }) }),
   offer: () => request<Offer>("/api/v1/offer"),
-  createApp: (input: { slug: string; name: string; runtime: string; addons: string[]; presets: Record<string, string>; stage?: string }) =>
+  projects: () => request<AppProject[]>("/api/v1/apps"),
+  createProject: (name: string, runtime: string) => request<AppProject>("/api/v1/apps", { method: "POST", body: JSON.stringify({ name, runtime }) }),
+  deleteProject: (id: string) => request<void>(`/api/v1/apps/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  createApp: (input: { slug: string; name: string; runtime: string; app?: string; addons: string[]; presets: Record<string, string>; stage?: string }) =>
     request<Environment>("/api/v1/environments", { method: "POST", body: JSON.stringify(input) }),
   me: () => request<Me>("/api/v1/me"),
   logout: () => request<void>("/api/v1/logout", { method: "POST" }),

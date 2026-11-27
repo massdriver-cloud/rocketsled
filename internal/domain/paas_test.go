@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ type tenantWorld struct {
 	descriptions map[string]string
 	version      map[string]string
 	deployed     map[string]string
+	projects     map[string]string
 	created      map[string]time.Time
 	status       map[string]string
 	params       map[string]map[string]any
@@ -100,19 +102,67 @@ func newTenantHarness(t *testing.T, paas *domain.PaaS) *tenantHarness {
 	if paas.Addons == nil {
 		paas.Addons = []domain.Addon{{ID: "db", Title: "Postgres"}, {ID: "cache", Title: "Key-Value Store"}}
 	}
-	w := &tenantWorld{descriptions: map[string]string{}, version: map[string]string{}, deployed: map[string]string{}, created: map[string]time.Time{}, status: map[string]string{}, params: map[string]map[string]any{}}
+	w := &tenantWorld{descriptions: map[string]string{}, projects: map[string]string{}, version: map[string]string{}, deployed: map[string]string{}, created: map[string]time.Time{}, status: map[string]string{}, params: map[string]map[string]any{}}
 	h := &tenantHarness{platform: &mocks.PlatformMock{}, store: memory.New(), world: w, now: fixedTime}
 	h.user = &domain.User{ID: "password:ada", Provider: domain.ProviderPassword, Login: "ada", Name: "ada"}
 	p := h.platform
 	p.PingFunc = func(context.Context) (string, error) { return "Fauxroku", nil }
-	p.GetProjectFunc = func(context.Context, string) (*domain.Project, error) {
+	p.GetProjectFunc = func(_ context.Context, id string) (*domain.Project, error) {
 		proj := rubyProject()
 		w.mu.Lock()
 		defer w.mu.Unlock()
-		for id, d := range w.descriptions {
-			proj.Environments = append(proj.Environments, domain.EnvironmentSummary{ID: id, Name: id, Description: d, CreatedAt: w.created[id]})
+		if slices.ContainsFunc(paas.Runtimes, func(rt domain.Runtime) bool { return rt.Project == id }) {
+			proj.ID = id
+		} else {
+			d, ok := w.projects[id]
+			if !ok {
+				return nil, domain.ErrNotFound
+			}
+			proj.ID, proj.Description = id, d
+		}
+		for envID, d := range w.descriptions {
+			if strings.HasPrefix(envID, proj.ID+"-") {
+				proj.Environments = append(proj.Environments, domain.EnvironmentSummary{ID: envID, Name: envID, Description: d, CreatedAt: w.created[envID]})
+			}
 		}
 		return proj, nil
+	}
+	p.ListProjectsFunc = func(ctx context.Context) ([]domain.Project, error) {
+		w.mu.Lock()
+		ids := make([]string, 0, 1+len(w.projects))
+		ids = append(ids, "ruby")
+		for id := range w.projects {
+			ids = append(ids, id)
+		}
+		w.mu.Unlock()
+		var out []domain.Project
+		for _, id := range ids {
+			proj, err := p.GetProjectFunc(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, *proj)
+		}
+		return out, nil
+	}
+	p.CreateProjectFromEnvironmentFunc = func(_ context.Context, _ string, req domain.NewProject) error {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		w.projects[req.ID] = req.Description
+		w.descriptions[req.ID+"-"+req.EnvironmentID] = ""
+		return nil
+	}
+	p.DeleteProjectFunc = func(_ context.Context, id string) error {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		delete(w.projects, id)
+		return nil
+	}
+	p.DeleteEnvironmentFunc = func(_ context.Context, id string) error {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		delete(w.descriptions, id)
+		return nil
 	}
 	p.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.PlatformEnvironment, error) {
 		w.mu.Lock()
@@ -124,7 +174,7 @@ func newTenantHarness(t *testing.T, paas *domain.PaaS) *tenantHarness {
 		return w.environment(id), nil
 	}
 	p.ForkEnvironmentFunc = func(_ context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
-		id := "ruby-" + req.ID
+		id := strings.TrimSuffix(req.ParentEnvironmentID, "-template") + "-" + req.ID
 		w.mu.Lock()
 		w.descriptions[id] = req.Description
 		w.created[id] = h.now
