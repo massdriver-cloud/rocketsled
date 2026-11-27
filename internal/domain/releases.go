@@ -173,12 +173,14 @@ func (s *Service) Release(ctx context.Context, user *User, account *Account, ref
 	}
 	instanceID, envRecordID, envID := app.ID, env.ID, env.EnvironmentID
 	run, err := s.startRun(ctx, user, env, TriggerRelease, summary, func(bg context.Context) error {
-		if err := platform.DeployInstance(bg, instanceID, params, summary+" by "+user.Login); err != nil {
+		deployment, err := platform.StartDeployment(bg, instanceID, params, summary+" by "+user.Login)
+		if err != nil {
 			return fmt.Errorf("release %s: %w", target.Component, err)
 		}
-		// The image counts as released only once it runs, so a bad one is
-		// never carried into the next deploy.
-		if err := s.waitProvisioned(bg, platform, envID, []string{target.Component}); err != nil {
+		// The image counts as released only once its own deployment completes,
+		// so a bad one is never carried into the next deploy. The instance's
+		// status can't tell: it still says PROVISIONED from the last deploy.
+		if err := s.waitDeployment(bg, platform, deployment, envID); err != nil {
 			return err
 		}
 		stored, err := s.store.GetEnvironment(bg, envRecordID)
@@ -199,6 +201,30 @@ func (s *Service) Release(ctx context.Context, user *User, account *Account, ref
 		return nil, err
 	}
 	return release, nil
+}
+
+// waitDeployment polls a deployment until it completes.
+func (s *Service) waitDeployment(ctx context.Context, platform Platform, deploymentID, envID string) error {
+	deadline := time.Now().Add(deployTimeout)
+	for {
+		status, err := platform.DeploymentStatus(ctx, deploymentID)
+		if err == nil {
+			switch strings.ToUpper(status) {
+			case "COMPLETED":
+				return nil
+			case "FAILED", "ABORTED", "REJECTED":
+				return fmt.Errorf("the deployment to %s %s", envID, strings.ToLower(status))
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("still deploying to %s after %s", envID, deployTimeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(deployPollEvery):
+		}
+	}
 }
 
 // ListReleases lists an environment's releases, newest first.

@@ -114,6 +114,10 @@ func newHarness(t *testing.T, mode domain.AccountMode, catalogs ...domain.Catalo
 		return liveEnv("serverless-"+req.ID, "INITIALIZED"), nil
 	}
 	h.platform.CreateResourceFunc = func(context.Context, string, string, map[string]any) (string, error) { return "res-role", nil }
+	h.platform.StartDeploymentFunc = func(ctx context.Context, id string, params map[string]any, msg string) (string, error) {
+		return "dep-1", h.platform.DeployInstance(ctx, id, params, msg)
+	}
+	h.platform.DeploymentStatusFunc = func(context.Context, string) (string, error) { return "COMPLETED", nil }
 	h.platform.CreateServiceAccountFunc = func(context.Context, string) (string, error) { return "md_sa_token", nil }
 	h.installer.InstallFunc = func(_ context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
 		_, _ = io.WriteString(req.Log, "==> publishing\n")

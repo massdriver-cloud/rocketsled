@@ -50,7 +50,11 @@ func newEnv(t *testing.T) *env {
 		ForkEnvironmentFunc: func(_ context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 			return liveEnv("serverless-"+req.ID, "INITIALIZED"), nil
 		},
-		CreateResourceFunc: func(context.Context, string, string, map[string]any) (string, error) { return "res-role", nil },
+		CreateResourceFunc:   func(context.Context, string, string, map[string]any) (string, error) { return "res-role", nil },
+		DeploymentStatusFunc: func(context.Context, string) (string, error) { return "COMPLETED", nil },
+	}
+	platform.StartDeploymentFunc = func(ctx context.Context, id string, params map[string]any, msg string) (string, error) {
+		return "dep-1", platform.DeployInstance(ctx, id, params, msg)
 	}
 	installer := &mocks.InstallerMock{InstallFunc: func(context.Context, domain.InstallRequest) (*domain.InstallResult, error) {
 		return &domain.InstallResult{ProjectID: "serverless", Environments: map[string]string{"production": "serverless-production"}}, nil

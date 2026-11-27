@@ -47,6 +47,9 @@ var _ domain.Platform = &PlatformMock{}
 //			DeployInstanceFunc: func(ctx context.Context, instanceID string, params map[string]any, message string) error {
 //				panic("mock out the DeployInstance method")
 //			},
+//			DeploymentStatusFunc: func(ctx context.Context, deploymentID string) (string, error) {
+//				panic("mock out the DeploymentStatus method")
+//			},
 //			ForkEnvironmentFunc: func(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 //				panic("mock out the ForkEnvironment method")
 //			},
@@ -67,6 +70,9 @@ var _ domain.Platform = &PlatformMock{}
 //			},
 //			SetEnvironmentDescriptionFunc: func(ctx context.Context, environmentID string, description string) error {
 //				panic("mock out the SetEnvironmentDescription method")
+//			},
+//			StartDeploymentFunc: func(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
+//				panic("mock out the StartDeployment method")
 //			},
 //		}
 //
@@ -102,6 +108,9 @@ type PlatformMock struct {
 	// DeployInstanceFunc mocks the DeployInstance method.
 	DeployInstanceFunc func(ctx context.Context, instanceID string, params map[string]any, message string) error
 
+	// DeploymentStatusFunc mocks the DeploymentStatus method.
+	DeploymentStatusFunc func(ctx context.Context, deploymentID string) (string, error)
+
 	// ForkEnvironmentFunc mocks the ForkEnvironment method.
 	ForkEnvironmentFunc func(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error)
 
@@ -122,6 +131,9 @@ type PlatformMock struct {
 
 	// SetEnvironmentDescriptionFunc mocks the SetEnvironmentDescription method.
 	SetEnvironmentDescriptionFunc func(ctx context.Context, environmentID string, description string) error
+
+	// StartDeploymentFunc mocks the StartDeployment method.
+	StartDeploymentFunc func(ctx context.Context, instanceID string, params map[string]any, message string) (string, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -206,6 +218,13 @@ type PlatformMock struct {
 			// Message is the message argument value.
 			Message string
 		}
+		// DeploymentStatus holds details about calls to the DeploymentStatus method.
+		DeploymentStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// DeploymentID is the deploymentID argument value.
+			DeploymentID string
+		}
 		// ForkEnvironment holds details about calls to the ForkEnvironment method.
 		ForkEnvironment []struct {
 			// Ctx is the ctx argument value.
@@ -257,6 +276,17 @@ type PlatformMock struct {
 			// Description is the description argument value.
 			Description string
 		}
+		// StartDeployment holds details about calls to the StartDeployment method.
+		StartDeployment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// InstanceID is the instanceID argument value.
+			InstanceID string
+			// Params is the params argument value.
+			Params map[string]any
+			// Message is the message argument value.
+			Message string
+		}
 	}
 	lockCopyInstance              sync.RWMutex
 	lockCreateOrganization        sync.RWMutex
@@ -267,6 +297,7 @@ type PlatformMock struct {
 	lockDeleteEnvironment         sync.RWMutex
 	lockDeployEnvironment         sync.RWMutex
 	lockDeployInstance            sync.RWMutex
+	lockDeploymentStatus          sync.RWMutex
 	lockForkEnvironment           sync.RWMutex
 	lockGetEnvironment            sync.RWMutex
 	lockGetProject                sync.RWMutex
@@ -274,6 +305,7 @@ type PlatformMock struct {
 	lockPing                      sync.RWMutex
 	lockSetEnvironmentDefault     sync.RWMutex
 	lockSetEnvironmentDescription sync.RWMutex
+	lockStartDeployment           sync.RWMutex
 }
 
 // CopyInstance calls CopyInstanceFunc.
@@ -665,6 +697,46 @@ func (mock *PlatformMock) DeployInstanceCalls() []struct {
 	return calls
 }
 
+// DeploymentStatus calls DeploymentStatusFunc.
+func (mock *PlatformMock) DeploymentStatus(ctx context.Context, deploymentID string) (string, error) {
+	callInfo := struct {
+		Ctx          context.Context
+		DeploymentID string
+	}{
+		Ctx:          ctx,
+		DeploymentID: deploymentID,
+	}
+	mock.lockDeploymentStatus.Lock()
+	mock.calls.DeploymentStatus = append(mock.calls.DeploymentStatus, callInfo)
+	mock.lockDeploymentStatus.Unlock()
+	if mock.DeploymentStatusFunc == nil {
+		var (
+			sOut   string
+			errOut error
+		)
+		return sOut, errOut
+	}
+	return mock.DeploymentStatusFunc(ctx, deploymentID)
+}
+
+// DeploymentStatusCalls gets all the calls that were made to DeploymentStatus.
+// Check the length with:
+//
+//	len(mockedPlatform.DeploymentStatusCalls())
+func (mock *PlatformMock) DeploymentStatusCalls() []struct {
+	Ctx          context.Context
+	DeploymentID string
+} {
+	var calls []struct {
+		Ctx          context.Context
+		DeploymentID string
+	}
+	mock.lockDeploymentStatus.RLock()
+	calls = mock.calls.DeploymentStatus
+	mock.lockDeploymentStatus.RUnlock()
+	return calls
+}
+
 // ForkEnvironment calls ForkEnvironmentFunc.
 func (mock *PlatformMock) ForkEnvironment(ctx context.Context, req domain.ForkRequest) (*domain.PlatformEnvironment, error) {
 	callInfo := struct {
@@ -943,6 +1015,54 @@ func (mock *PlatformMock) SetEnvironmentDescriptionCalls() []struct {
 	mock.lockSetEnvironmentDescription.RLock()
 	calls = mock.calls.SetEnvironmentDescription
 	mock.lockSetEnvironmentDescription.RUnlock()
+	return calls
+}
+
+// StartDeployment calls StartDeploymentFunc.
+func (mock *PlatformMock) StartDeployment(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
+	callInfo := struct {
+		Ctx        context.Context
+		InstanceID string
+		Params     map[string]any
+		Message    string
+	}{
+		Ctx:        ctx,
+		InstanceID: instanceID,
+		Params:     params,
+		Message:    message,
+	}
+	mock.lockStartDeployment.Lock()
+	mock.calls.StartDeployment = append(mock.calls.StartDeployment, callInfo)
+	mock.lockStartDeployment.Unlock()
+	if mock.StartDeploymentFunc == nil {
+		var (
+			sOut   string
+			errOut error
+		)
+		return sOut, errOut
+	}
+	return mock.StartDeploymentFunc(ctx, instanceID, params, message)
+}
+
+// StartDeploymentCalls gets all the calls that were made to StartDeployment.
+// Check the length with:
+//
+//	len(mockedPlatform.StartDeploymentCalls())
+func (mock *PlatformMock) StartDeploymentCalls() []struct {
+	Ctx        context.Context
+	InstanceID string
+	Params     map[string]any
+	Message    string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		InstanceID string
+		Params     map[string]any
+		Message    string
+	}
+	mock.lockStartDeployment.RLock()
+	calls = mock.calls.StartDeployment
+	mock.lockStartDeployment.RUnlock()
 	return calls
 }
 
