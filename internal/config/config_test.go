@@ -53,7 +53,7 @@ func TestParseReportsEveryProblem(t *testing.T) {
 	t.Setenv(masscfg.PathEnv, filepath.Join(t.TempDir(), "missing.yaml"))
 	_, err := config.Parse([]byte(`
 massdriver:
-  account_mode: tenant
+  account_mode: landlord
 catalogs:
   release_channel: beta
 `))
@@ -64,7 +64,7 @@ catalogs:
 massdriver:
   organization_id: x
   api_key: y
-  account_mode: tenant
+  account_mode: landlord
 catalogs:
   release_channel: beta
 server:
@@ -77,4 +77,36 @@ auth:
 	for _, want := range []string{"session_secret", "account_mode must be", "release_channel must be", "dev is for local use"} {
 		assert.Contains(t, err.Error(), want)
 	}
+}
+
+func TestTenantModeReadsThePaaSAndResolvesTheSkin(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "paas.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+server:
+  session_secret: 0123456789abcdef0123456789abcdef
+massdriver:
+  account_mode: tenant
+  organization_id: rs-test
+  api_key: md_test
+skin: skins/purple
+paas:
+  runtimes:
+    - {id: ruby, name: Ruby, project: ruby, template: template}
+  pinned:
+    web: {subdomain: "{{environment_id}}"}
+  addons:
+    worker: {title: Worker}
+    db: {title: Postgres}
+  pipeline: {stages: []}
+auth:
+  providers:
+    password: {password: hunter22}
+`), 0o600))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "skins/purple"), cfg.Skin)
+	assert.Equal(t, "ruby", cfg.PaaS.Runtimes[0].Project)
+	assert.Equal(t, []string{"worker", "db"}, []string{cfg.PaaS.Addons[0].ID, cfg.PaaS.Addons[1].ID})
+	assert.Equal(t, "{{environment_id}}", cfg.PaaS.Pinned["web"]["subdomain"])
 }

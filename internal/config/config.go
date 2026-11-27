@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +24,65 @@ type Config struct {
 	Catalogs   Catalogs   `yaml:"catalogs"`
 	Tools      Tools      `yaml:"tools"`
 	Auth       Auth       `yaml:"auth"`
+	// Skin is a directory with skin.json; relative paths resolve against the config file.
+	Skin string `yaml:"skin"`
+	// PaaS describes what customers can make in tenant mode.
+	PaaS *PaaS `yaml:"paas"`
+}
+
+// PaaS is a tenant-mode server's offer: runtimes forked from templates, add-ons
+// deployed only when picked, and params no preset can know.
+type PaaS struct {
+	Runtimes []Runtime `yaml:"runtimes"`
+	// Pinned params apply over every preset, keyed by component. String values may
+	// use {{environment_id}}, {{app}} and {{runtime}}.
+	Pinned map[string]map[string]any `yaml:"pinned"`
+	Addons Addons                    `yaml:"addons"`
+	// Plans label presets with a price and a sentence, keyed by component, then preset.
+	Plans      map[string]map[string]Plan `yaml:"plans"`
+	Highlights map[string][]string        `yaml:"highlights"`
+}
+
+// Runtime is a template environment customers fork.
+type Runtime struct {
+	ID           string `yaml:"id"`
+	Name         string `yaml:"name"`
+	Summary      string `yaml:"summary"`
+	Project      string `yaml:"project"`
+	Template     string `yaml:"template"`
+	AppComponent string `yaml:"app_component"`
+	ImageParam   string `yaml:"image_param"`
+}
+
+// Addon is an optional component of a template.
+type Addon struct {
+	ID      string
+	Title   string `yaml:"title"`
+	Summary string `yaml:"summary"`
+}
+
+// Addons keeps the order the config lists them in, which is the order customers see.
+type Addons []Addon
+
+func (a *Addons) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return errors.New("paas.addons must be a mapping of component to title and summary")
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		var addon Addon
+		if err := n.Content[i+1].Decode(&addon); err != nil {
+			return err
+		}
+		addon.ID = n.Content[i].Value
+		*a = append(*a, addon)
+	}
+	return nil
+}
+
+// Plan is what a preset costs and gets, in a customer's words.
+type Plan struct {
+	Price   string `yaml:"price"`
+	Summary string `yaml:"summary"`
 }
 
 type Server struct {
@@ -73,6 +134,12 @@ type AuthProviders struct {
 	GitLab *OAuthProvider `yaml:"gitlab"`
 	// Dev signs in a fixed user with no OAuth app. Local development only.
 	Dev *DevProvider `yaml:"dev"`
+	// Password signs in anyone who knows the shared password, under the name they type.
+	Password *PasswordProvider `yaml:"password"`
+}
+
+type PasswordProvider struct {
+	Password string `yaml:"password"`
 }
 
 type OAuthProvider struct {
@@ -92,13 +159,20 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	return Parse(raw)
+	cfg, err := Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Skin != "" && !filepath.IsAbs(cfg.Skin) {
+		cfg.Skin = filepath.Join(filepath.Dir(path), cfg.Skin)
+	}
+	return cfg, nil
 }
 
 // Parse decodes YAML bytes. See Load.
 func Parse(raw []byte) (*Config, error) {
 	cfg := Default()
-	if err := yaml.Unmarshal([]byte(os.ExpandEnv(string(raw))), cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expandEnv(string(raw))), cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.applyDefaults()
@@ -109,6 +183,13 @@ func Parse(raw []byte) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// expandEnv replaces only ${NAME}, so prices like "$7/mo" survive.
+func expandEnv(s string) string {
+	return envRef.ReplaceAllStringFunc(s, func(m string) string { return os.Getenv(m[2 : len(m)-1]) })
 }
 
 // Default returns a config with every optional field populated.
@@ -166,8 +247,10 @@ func (c *Config) Validate() error {
 	}
 	switch c.Massdriver.AccountMode {
 	case "shared", "organization":
+	case "tenant":
+		errs = append(errs, c.PaaS.validate()...)
 	default:
-		errs = append(errs, fmt.Errorf("massdriver.account_mode must be shared or organization, got %q", c.Massdriver.AccountMode))
+		errs = append(errs, fmt.Errorf("massdriver.account_mode must be shared, organization or tenant, got %q", c.Massdriver.AccountMode))
 	}
 	if c.Massdriver.OrganizationID == "" || c.Massdriver.APIKey == "" {
 		errs = append(errs, errors.New("massdriver.organization_id and massdriver.api_key are required"))
@@ -177,8 +260,11 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("catalogs.release_channel must be stable or development, got %q", c.Catalogs.ReleaseChannel))
 	}
-	if c.Auth.Providers.GitHub == nil && c.Auth.Providers.GitLab == nil && c.Auth.Providers.Dev == nil {
-		errs = append(errs, errors.New("auth.providers must configure github, gitlab, or dev"))
+	if c.Auth.Providers.GitHub == nil && c.Auth.Providers.GitLab == nil && c.Auth.Providers.Dev == nil && c.Auth.Providers.Password == nil {
+		errs = append(errs, errors.New("auth.providers must configure github, gitlab, password or dev"))
+	}
+	if p := c.Auth.Providers.Password; p != nil && len(p.Password) < 8 {
+		errs = append(errs, errors.New("auth.providers.password.password must be at least 8 characters"))
 	}
 	if c.Auth.Providers.Dev != nil && strings.HasPrefix(c.Server.BaseURL, "https://") {
 		errs = append(errs, errors.New("auth.providers.dev is for local use; remove it when serving over https"))
@@ -189,4 +275,22 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (p *PaaS) validate() []error {
+	if p == nil || len(p.Runtimes) == 0 {
+		return []error{errors.New("tenant mode needs paas.runtimes")}
+	}
+	var errs []error
+	seen := map[string]bool{}
+	for i, r := range p.Runtimes {
+		if r.ID == "" || r.Project == "" || r.Template == "" {
+			errs = append(errs, fmt.Errorf("paas.runtimes[%d] needs id, project and template", i))
+		}
+		if seen[r.ID] {
+			errs = append(errs, fmt.Errorf("paas.runtimes: %q is listed twice", r.ID))
+		}
+		seen[r.ID] = true
+	}
+	return errs
 }
