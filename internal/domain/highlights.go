@@ -2,8 +2,10 @@ package domain
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -23,7 +25,7 @@ type SchemaField struct {
 	Title string
 }
 
-var secretField = regexp.MustCompile(`(?i)secret|password|token|key`)
+var secretField = regexp.MustCompile(`(?i)secret|password|passwd|token|credential|private|dsn|connection_string|(^|_)key$|(^|_)key_|api_?key|access_key`)
 
 // PickHighlights chooses what to show of a resource: the configured fields in
 // their configured order, or else the first scalar fields in schema order.
@@ -45,7 +47,7 @@ func PickHighlights(r InstanceResource, configured []string) []Highlight {
 			break
 		}
 		value, ok := scalar(r.Payload[name])
-		if !ok || secretField.MatchString(name) || slices.ContainsFunc(out, func(h Highlight) bool { return h.Field == name }) {
+		if !ok || secretField.MatchString(name) || carriesPassword(value) || slices.ContainsFunc(out, func(h Highlight) bool { return h.Field == name }) {
 			continue
 		}
 		title := titles[name]
@@ -78,11 +80,23 @@ func fallbackOrder(r InstanceResource) []string {
 	return append(names, rest...)
 }
 
+// carriesPassword spots a connection string with credentials in it, whatever its field is called.
+func carriesPassword(value string) bool {
+	u, err := url.Parse(value)
+	if err != nil || u.User == nil {
+		return false
+	}
+	_, ok := u.User.Password()
+	return ok
+}
+
 func scalar(v any) (string, bool) {
 	switch t := v.(type) {
 	case string:
 		return t, t != ""
-	case bool, float64, float32, int, int64:
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64), true
+	case bool, int, int64:
 		return fmt.Sprint(t), true
 	}
 	return "", false

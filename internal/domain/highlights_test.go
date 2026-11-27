@@ -36,6 +36,14 @@ func TestPickHighlights(t *testing.T) {
 			want:       []domain.Highlight{{"port", "Port", "5432"}, {"hostname", "Hostname", "db.internal"}, {"database", "Database", "app"}},
 		},
 		{
+			name: "large numbers print whole, credentials in values and key fields stay hidden",
+			resource: domain.InstanceResource{Payload: map[string]any{
+				"account": float64(123456789012), "uri": "postgres://app:hunter2@db.internal/app", "keyspace": "main", "api_key": "k",
+			}},
+			configured: []string{"account", "uri", "api_key", "keyspace"},
+			want:       []domain.Highlight{{"account", "Account", "123456789012"}, {"keyspace", "Keyspace", "main"}},
+		},
+		{
 			name: "configured secrets and objects are never shown", resource: postgres,
 			configured: []string{"password", "endpoints", "empty", "username"},
 			want:       []domain.Highlight{{"username", "Username", "app"}},

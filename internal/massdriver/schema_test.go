@@ -21,6 +21,7 @@ func TestSchemaFields(t *testing.T) {
 		{"ui:order first, the rest where * sits", schema, `{"ui:order":["url","*","id"]}`, []string{"url", "region", "arn", "id"}},
 		{"ui:order without *", schema, `{"ui:order":["arn"]}`, []string{"arn", "id", "region", "url"}},
 		{"Map sent as a JSON string", mustQuote(schema), mustQuote(`{"ui:order":["url"]}`), []string{"url", "id", "region", "arn"}},
+		{"a boolean subschema doesn't stop the walk", `{"properties":{"a":true,"b":{"title":"B"}}}`, `{}`, []string{"a", "b"}},
 		{"no properties", `{"type":"object"}`, `{}`, nil},
 		{"missing", ``, ``, nil},
 	}

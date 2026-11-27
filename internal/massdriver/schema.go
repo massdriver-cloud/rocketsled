@@ -51,12 +51,14 @@ func orderedProperties(raw json.RawMessage) []domain.SchemaField {
 			return out
 		}
 		name, _ := tok.(string)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return out
+		}
 		var prop struct {
 			Title string `json:"title"`
 		}
-		if err := dec.Decode(&prop); err != nil {
-			return out
-		}
+		_ = json.Unmarshal(value, &prop)
 		out = append(out, domain.SchemaField{Name: name, Title: prop.Title})
 	}
 	return out
