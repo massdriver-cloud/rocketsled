@@ -546,3 +546,30 @@ func TestProjectComponentsAreListedProducersFirst(t *testing.T) {
 	}
 	assert.Equal(t, []string{"api", "vpc", "table", "app"}, slugs)
 }
+
+func TestOfferedLimitsWhatNewAccountsInstallButKeepsInstalledCatalogs(t *testing.T) {
+	other := awsCatalog()
+	other.ID, other.Name = "paas", "PaaS"
+	svc, err := domain.NewService(domain.Options{
+		Platforms:        func(domain.Credential) domain.Platform { return &mocks.PlatformMock{} },
+		Store:            memory.New(),
+		Installer:        &mocks.InstallerMock{},
+		Password:         "correct horse",
+		Catalogs:         []domain.Catalog{awsCatalog(), other},
+		Offered:          []string{"paas"},
+		Mode:             domain.AccountModeShared,
+		SharedCredential: domain.Credential{OrganizationID: "rs-shared", APIKey: "md_shared"},
+	})
+	require.NoError(t, err)
+	listed := svc.ListCatalogs()
+	require.Len(t, listed, 1)
+	assert.Equal(t, "paas", listed[0].ID)
+
+	installed, err := svc.GetCatalog("aws-serverless")
+	require.NoError(t, err, "an account that installed it before still finds it")
+	assert.Equal(t, "AWS Serverless", installed.Name)
+
+	_, err = svc.InstallCatalog(context.Background(), &domain.Account{ID: "a", Status: domain.AccountStatusNew}, "aws-serverless")
+	var verr *domain.ValidationError
+	require.ErrorAs(t, err, &verr, "a new account can't install it")
+}

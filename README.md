@@ -83,8 +83,9 @@ platforms, resource types and bundles outside it, and `catalogs.dirs` loads cata
 from directories other than `catalogs/`; see
 [docs/CATALOG_AUTHORING.md](docs/CATALOG_AUTHORING.md).
 
-`catalogs.include: [<id>, ...]` limits a server to those catalogs; the others are not
-parsed beyond their `id`. With a single catalog the setup page skips the choice and
+`catalogs.include: [<id>, ...]` limits what new accounts can install to those catalogs;
+the others are not parsed beyond their `id`, except one an existing account already
+installed, which stays loaded for that account. With a single catalog the setup page skips the choice and
 offers just that platform.
 
 ## REST API

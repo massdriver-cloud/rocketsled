@@ -13,7 +13,7 @@ import (
 )
 
 func TestLoadsTheShippedCatalog(t *testing.T) {
-	cats, err := catalog.LoadAll([]string{filepath.Join("..", "..", "catalogs")}, nil)
+	cats, err := catalog.LoadAll([]string{filepath.Join("..", "..", "catalogs")}, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, cats, 1)
 
@@ -154,7 +154,7 @@ func TestLoadClimbsFromWhereASymlinkedCatalogReallyIs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(root, "platforms"), c.Paths.Platforms, "../../platforms from the real directory, not the link")
 
-	all, err := catalog.LoadAll(link)
+	all, err := catalog.LoadAll([]string{link}, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 1, "a catalog directory reached through a symlink is loaded")
 }
@@ -190,7 +190,7 @@ func TestLoadAllReadsEveryDirAndRejectsDuplicateIDs(t *testing.T) {
 	_, dir := sharedTree(t)
 	shipped := filepath.Join("..", "..", "catalogs")
 
-	cats, err := catalog.LoadAll([]string{shipped, filepath.Dir(dir)}, nil)
+	cats, err := catalog.LoadAll([]string{shipped, filepath.Dir(dir)}, nil, nil)
 	require.NoError(t, err)
 	ids := make([]string, 0, len(cats))
 	for _, c := range cats {
@@ -198,7 +198,7 @@ func TestLoadAllReadsEveryDirAndRejectsDuplicateIDs(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"aws-serverless", "paas"}, ids)
 
-	_, err = catalog.LoadAll([]string{shipped, filepath.Dir(dir), shipped}, nil)
+	_, err = catalog.LoadAll([]string{shipped, filepath.Dir(dir), shipped}, nil, nil)
 	require.ErrorContains(t, err, `catalog "aws-serverless" is in both`)
 }
 
@@ -211,18 +211,20 @@ func TestLoadAllLoadsOnlyIncludedCatalogs(t *testing.T) {
 	tests := []struct {
 		name    string
 		include []string
+		keep    []string
 		want    []string
 		wantErr string
 	}{
 		{name: "one catalog, broken neighbours untouched", include: []string{"paas"}, want: []string{"paas"}},
 		{name: "everything when empty", wantErr: "catalog " + filepath.Join(dir, "broken")},
 		{name: "an included broken catalog reports itself", include: []string{"broken"}, wantErr: `bundle "nope"`},
-		{name: "an unparseable catalog is matched by its directory", include: []string{"garbled"}, wantErr: "parse catalog.yaml"},
+		{name: "an unreadable catalog is named when an included id is missing", include: []string{"garbled"}, wantErr: "could not be read: " + filepath.Join(dir, "garbled")},
+		{name: "an installed catalog stays loaded", include: []string{"paas"}, keep: []string{"broken"}, wantErr: `bundle "nope"`},
 		{name: "unknown ids", include: []string{"paas", "fauxroku", "fauxcel"}, wantErr: "catalogs.include: no catalog with id fauxroku, fauxcel in " + dir},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cats, err := catalog.LoadAll([]string{dir}, tt.include)
+			cats, err := catalog.LoadAll([]string{dir}, tt.include, tt.keep)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return

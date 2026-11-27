@@ -53,11 +53,13 @@ type platformFile struct {
 }
 
 // LoadAll reads the catalogs under each of dirs, sorted by name. When include
-// is not empty, only catalogs with those IDs are loaded, and an ID that matches
-// no catalog is an error. A catalog ID found in two places is an error.
-func LoadAll(dirs, include []string) ([]domain.Catalog, error) {
+// is not empty, only catalogs with those IDs, or with an ID in keep, are
+// loaded, and an included ID that matches no catalog is an error. A catalog ID
+// found in two places is an error.
+func LoadAll(dirs, include, keep []string) ([]domain.Catalog, error) {
 	var out []domain.Catalog
 	where := map[string]string{}
+	var unreadable []string
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -71,8 +73,15 @@ func LoadAll(dirs, include []string) ([]domain.Catalog, error) {
 			if _, err := os.Stat(filepath.Join(path, "catalog.yaml")); err != nil {
 				continue
 			}
-			if len(include) > 0 && !slices.Contains(include, catalogID(path)) {
-				continue
+			if len(include) > 0 {
+				id, err := catalogID(path)
+				if err != nil {
+					unreadable = append(unreadable, fmt.Sprintf("%s (%v)", path, err))
+					continue
+				}
+				if !slices.Contains(include, id) && !slices.Contains(keep, id) {
+					continue
+				}
 			}
 			c, err := Load(path)
 			if err != nil {
@@ -92,25 +101,33 @@ func LoadAll(dirs, include []string) ([]domain.Catalog, error) {
 		}
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("catalogs.include: no catalog with id %s in %s", strings.Join(missing, ", "), strings.Join(dirs, ", "))
+		msg := fmt.Sprintf("catalogs.include: no catalog with id %s in %s", strings.Join(missing, ", "), strings.Join(dirs, ", "))
+		if len(unreadable) > 0 {
+			msg += "; these catalog.yaml files could not be read: " + strings.Join(unreadable, "; ")
+		}
+		return nil, errors.New(msg)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
 // catalogID reads only a catalog's id, so a catalog that is not offered can't
-// stop the server however broken the rest of it is. A catalog.yaml that won't
-// parse at all falls back to its directory name, the id by convention, so an
-// included catalog still reports its own error.
-func catalogID(dir string) string {
+// stop the server however broken the rest of it is.
+func catalogID(dir string) (string, error) {
 	var m struct {
 		ID string `yaml:"id"`
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "catalog.yaml"))
-	if err == nil && yaml.Unmarshal(raw, &m) == nil && m.ID != "" {
-		return m.ID
+	if err != nil {
+		return "", err
 	}
-	return filepath.Base(dir)
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return "", err
+	}
+	if m.ID == "" {
+		return "", errors.New("no id")
+	}
+	return m.ID, nil
 }
 
 // Load reads one catalog directory.
