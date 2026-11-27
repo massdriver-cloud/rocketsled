@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -90,6 +91,9 @@ func NormalizeHostnames(in []string) ([]string, error) {
 				return nil, Invalid("domains", "%s is not a hostname: use letters, digits and hyphens between dots", h)
 			}
 		}
+		if strings.Trim(labels[len(labels)-1], "0123456789") == "" {
+			return nil, Invalid("domains", "%s is an address, not a hostname", h)
+		}
 		if seen[h] {
 			return nil, Invalid("domains", "%s is listed twice", h)
 		}
@@ -138,6 +142,10 @@ func (s *Service) SetDomains(ctx context.Context, user *User, account *Account, 
 	if !list && len(hosts) > 1 {
 		return nil, Invalid("domains", "%s answers on one domain", env.Name)
 	}
+	if err := s.domainsFree(ctx, platform, env, hosts); err != nil {
+		return nil, err
+	}
+	previous := env.Domains
 	env.Domains = nil
 	if len(hosts) > 0 {
 		env.Domains = &DomainSetting{Hosts: hosts, List: list}
@@ -152,10 +160,45 @@ func (s *Service) SetDomains(ctx context.Context, user *User, account *Account, 
 	if len(hosts) > 0 {
 		summary = "Domains: " + strings.Join(hosts, ", ")
 	}
-	envID, slug := env.EnvironmentID, d.Component
+	envID, envRecordID, slug := env.EnvironmentID, env.ID, d.Component
 	return s.startRun(ctx, user, env, TriggerDomains, summary, func(bg context.Context) error {
-		return s.deployInLayers(bg, platform, envID, map[string]map[string]any{slug: params}, nil, summary+" by "+user.Login)
+		err := s.deployInLayers(bg, platform, envID, map[string]map[string]any{slug: params}, nil, summary+" by "+user.Login)
+		if err != nil {
+			// A domain the bundle rejected must not ride along on every later deploy.
+			if stored, getErr := s.store.GetEnvironment(bg, envRecordID); getErr == nil {
+				stored.Domains = previous
+				_ = s.store.UpdateEnvironment(bg, stored)
+			}
+		}
+		return err
 	})
+}
+
+// domainsFree refuses a hostname another app on this server already answers
+// on, so one customer can't take another's traffic.
+func (s *Service) domainsFree(ctx context.Context, platform Platform, env *Environment, hosts []string) error {
+	if len(hosts) == 0 {
+		return nil
+	}
+	all, _, err := s.madeHere(ctx, platform)
+	if err != nil {
+		return err
+	}
+	for _, e := range all {
+		if e.ID == env.ID {
+			continue
+		}
+		other, err := s.store.GetEnvironment(ctx, e.ID)
+		if err != nil || other.Domains == nil {
+			continue
+		}
+		for _, h := range hosts {
+			if slices.Contains(other.Domains.Hosts, h) {
+				return Invalid("domains", "%s is already in use", h)
+			}
+		}
+	}
+	return nil
 }
 
 // AppDomains lists an app's domains with the CNAME each needs. A domain is

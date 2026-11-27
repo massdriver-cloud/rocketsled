@@ -28,6 +28,7 @@ func TestNormalizeHostnames(t *testing.T) {
 		{name: "empty label", in: []string{"app..example.com"}, bad: true},
 		{name: "label over 63", in: []string{"a234567890123456789012345678901234567890123456789012345678901234.com"}, bad: true},
 		{name: "empty", in: []string{" "}, bad: true},
+		{name: "an IP address", in: []string{"10.0.0.1"}, bad: true},
 		{name: "duplicate after normalizing", in: []string{"www.example.com", "WWW.example.com."}, bad: true},
 		{name: "a URL", in: []string{"https://www.example.com"}, bad: true},
 	}
@@ -180,4 +181,29 @@ func TestAdoptedAppsReadTheirDomainsBack(t *testing.T) {
 	plain, err := h.store.GetEnvironment(context.Background(), other.ID)
 	require.NoError(t, err)
 	assert.Nil(t, plain.Domains, "the pinned subdomain is not a customer's domain")
+}
+
+func TestDomainsAreNotSharedAndARejectedOneIsDropped(t *testing.T) {
+	h := domainsHarness(t, "string")
+	ctx := context.Background()
+	first := h.app(t, "hello")
+	second := h.app(t, "other")
+	_, err := h.svc.SetDomains(ctx, h.user, h.account, first.ID, domain.DomainsInput{Domains: []string{"www.example.com"}})
+	require.NoError(t, err)
+
+	var verr *domain.ValidationError
+	_, err = h.svc.SetDomains(ctx, h.user, h.account, second.ID, domain.DomainsInput{Domains: []string{"WWW.example.com"}})
+	require.ErrorAs(t, err, &verr, "another app already answers on it")
+
+	deploy := h.platform.DeployInstanceFunc
+	h.platform.DeployInstanceFunc = func(_ context.Context, id string, params map[string]any, _ string) error {
+		h.world.set(id, "FAILED", params)
+		return nil
+	}
+	_, err = h.svc.SetDomains(ctx, h.user, h.account, first.ID, domain.DomainsInput{Domains: []string{"bad.example.com"}})
+	require.NoError(t, err)
+	h.platform.DeployInstanceFunc = deploy
+	stored, err := h.store.GetEnvironment(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"www.example.com"}, stored.Domains.Hosts, "the domain the deploy failed with is not kept")
 }
