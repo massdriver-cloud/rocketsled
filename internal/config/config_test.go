@@ -122,7 +122,8 @@ auth:
   providers:
     dev: {login: cory}
 `
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	tests := []struct {
 		name     string
 		catalogs string

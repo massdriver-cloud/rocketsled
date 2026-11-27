@@ -61,10 +61,10 @@ func LoadAll(dirs ...string) ([]domain.Catalog, error) {
 			return nil, fmt.Errorf("read catalogs dir: %w", err)
 		}
 		for _, e := range entries {
-			if !e.IsDir() {
+			path := filepath.Join(dir, e.Name())
+			if info, err := os.Stat(path); err != nil || !info.IsDir() {
 				continue
 			}
-			path := filepath.Join(dir, e.Name())
 			if _, err := os.Stat(filepath.Join(path, "catalog.yaml")); err != nil {
 				continue
 			}
@@ -116,7 +116,7 @@ func Load(dir string) (*domain.Catalog, error) {
 		{"paths.resource_types", m.Paths.ResourceTypes, paths.ResourceTypes, len(m.ResourceTypes) > 0},
 		{"paths.bundles", m.Paths.Bundles, paths.Bundles, len(m.Bundles) > 0},
 	} {
-		if p.set == "" && !p.used {
+		if p.set == "" {
 			continue
 		}
 		if info, err := os.Stat(p.path); err != nil || !info.IsDir() {
@@ -166,7 +166,12 @@ func Load(dir string) (*domain.Catalog, error) {
 }
 
 // resolvePath places a catalog.yaml path relative to the catalog directory.
+// resolvePath follows symlinks in dir first, so ".." climbs from where the
+// catalog really is, as a shell would.
 func resolvePath(dir, set, fallback string) string {
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
 	if set == "" {
 		return filepath.Join(dir, fallback)
 	}

@@ -108,7 +108,8 @@ func write(t *testing.T, path, body string) {
 // platforms, resource types and bundles live at the repository root.
 func sharedTree(t *testing.T) (root, catalogDir string) {
 	t.Helper()
-	root = t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	catalogDir = filepath.Join(root, "examples", "paas")
 	write(t, filepath.Join(catalogDir, "catalog.yaml"), `
 id: paas
@@ -143,6 +144,21 @@ func TestLoadResolvesPathsOutsideTheCatalog(t *testing.T) {
 	assert.Equal(t, "aws-iam-role", c.Platforms[0].ID)
 }
 
+func TestLoadClimbsFromWhereASymlinkedCatalogReallyIs(t *testing.T) {
+	root, dir := sharedTree(t)
+	elsewhere := t.TempDir()
+	link := filepath.Join(elsewhere, "linked")
+	require.NoError(t, os.Symlink(filepath.Dir(dir), link))
+
+	c, err := catalog.Load(filepath.Join(link, "paas"))
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "platforms"), c.Paths.Platforms, "../../platforms from the real directory, not the link")
+
+	all, err := catalog.LoadAll(link)
+	require.NoError(t, err)
+	require.Len(t, all, 1, "a catalog directory reached through a symlink is loaded")
+}
+
 func TestLoadDefaultsPathsToSubdirectories(t *testing.T) {
 	c, err := catalog.Load(filepath.Join("..", "..", "catalogs", "aws-serverless"))
 	require.NoError(t, err)
@@ -154,7 +170,8 @@ func TestLoadDefaultsPathsToSubdirectories(t *testing.T) {
 }
 
 func TestLoadRejectsPathsThatAreNotDirectories(t *testing.T) {
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	write(t, filepath.Join(dir, "catalog.yaml"), `
 id: c
 name: C
@@ -163,7 +180,7 @@ bootstrap: {project: p, base_environment: main}
 `)
 	write(t, filepath.Join(dir, "bootstrap", "main.tf"), "")
 
-	_, err := catalog.Load(dir)
+	_, err = catalog.Load(dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "paths.bundles: "+filepath.Join(dir, "../nowhere")+" is not a directory")
 	assert.Contains(t, err.Error(), "paths.resource_types: "+filepath.Join(dir, "catalog.yaml")+" is not a directory")

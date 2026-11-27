@@ -193,9 +193,13 @@ func Load(path string) (*Config, error) {
 	if cfg.Skin != "" && !filepath.IsAbs(cfg.Skin) {
 		cfg.Skin = filepath.Join(filepath.Dir(path), cfg.Skin)
 	}
+	base := filepath.Dir(path)
+	if resolved, err := filepath.EvalSymlinks(base); err == nil {
+		base = resolved
+	}
 	for i, d := range cfg.Catalogs.Dirs {
 		if !filepath.IsAbs(d) {
-			cfg.Catalogs.Dirs[i] = filepath.Join(filepath.Dir(path), d)
+			cfg.Catalogs.Dirs[i] = filepath.Join(base, d)
 		}
 	}
 	return cfg, nil
