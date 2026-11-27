@@ -23,14 +23,36 @@ func awsCatalog() domain.Catalog {
 		Platforms: []domain.PlatformType{{
 			ID: "aws-iam-role", Label: "AWS IAM Role",
 			Schema: map[string]any{
-				"required":   []any{"arn", "external_id"},
-				"properties": map[string]any{"arn": map[string]any{"title": "Role ARN"}, "external_id": map[string]any{"title": "External ID"}},
+				"required": []any{"arn", "token_level"},
+				"properties": map[string]any{
+					"arn": map[string]any{"title": "Role ARN"},
+					"token_level": map[string]any{
+						"title":   "Token level",
+						"default": "organization",
+						"oneOf":   []any{map[string]any{"const": "organization", "title": "Organization"}, map[string]any{"const": "project", "title": "Project"}},
+					},
+				},
 			},
+			Instructions: []domain.Instruction{{Label: "AWS Console", Markdown: "Audience `massdriver:ORG_ID` on {{issuer}}."}},
 		}},
 		ResourceTypes: []string{"aws-vpc"}, Bundles: []string{"shared-vpc", "http-api"},
 		Bootstrap: domain.Bootstrap{Project: "serverless", BaseEnvironment: "production"},
 		Dir:       "/catalogs/aws-serverless",
 	}
+}
+
+// legacyCatalog collects the older credential: a role that trusts Massdriver's AWS account and a shared secret.
+func legacyCatalog() domain.Catalog {
+	c := awsCatalog()
+	c.ID, c.Name = "aws-legacy", "AWS Legacy"
+	c.Platforms = []domain.PlatformType{{
+		ID: "aws-iam-role", Label: "AWS IAM Role",
+		Schema: map[string]any{
+			"required":   []any{"arn", "external_id"},
+			"properties": map[string]any{"arn": map[string]any{"title": "Role ARN"}, "external_id": map[string]any{"title": "External ID"}},
+		},
+	}}
+	return c
 }
 
 func project() *domain.Project {
@@ -104,7 +126,7 @@ func newHarness(t *testing.T, mode domain.AccountMode) *harness {
 		Store:            h.store,
 		SCMs:             []domain.SCM{scm},
 		Installer:        h.installer,
-		Catalogs:         []domain.Catalog{awsCatalog()},
+		Catalogs:         []domain.Catalog{awsCatalog(), legacyCatalog()},
 		Mode:             mode,
 		SharedCredential: domain.Credential{URL: "https://api.massdriver.cloud", OrganizationID: "rs-shared", APIKey: "md_shared"},
 		OrgCreator:       domain.Credential{URL: "https://api.massdriver.cloud", APIKey: "md_pat"},
@@ -140,7 +162,7 @@ func (h *harness) installed(t *testing.T) *domain.Account {
 func (h *harness) ready(t *testing.T) *domain.Account {
 	t.Helper()
 	a := h.installed(t)
-	a, err := h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
+	a, err := h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x"})
 	require.NoError(t, err)
 	return a
 }
@@ -247,24 +269,19 @@ func TestProvidePlatformCreatesTheResourceAndPinsIt(t *testing.T) {
 	h := newHarness(t, domain.AccountModeShared)
 	a := h.installed(t)
 
-	reqs, err := h.svc.PlatformRequirements(a)
+	reqs, err := h.svc.PlatformRequirements(context.Background(), a)
 	require.NoError(t, err)
 	require.Len(t, reqs, 1)
 	assert.False(t, reqs[0].Satisfied)
 	assert.Equal(t, "AWS IAM Role", reqs[0].Type.Label)
 
-	_, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x"})
-	var verr *domain.ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "external_id", verr.Field)
-	assert.Equal(t, "External ID is required", verr.Message)
-
-	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
+	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x"})
 	require.NoError(t, err)
 
 	call := h.platform.CreateResourceCalls()[0]
 	assert.Equal(t, "aws-iam-role", call.ResourceTypeID)
 	assert.Equal(t, "AWS IAM Role", call.Name, "the name defaults to the type's label")
+	assert.Equal(t, map[string]any{"arn": "arn:aws:iam::1:role/x", "token_level": "organization"}, call.Payload, "the schema's default fills the token level")
 	assert.Equal(t, map[string]string{"aws-iam-role": "res-role"}, a.Platforms)
 	assert.Equal(t, domain.AccountStatusReady, a.Status)
 	require.Len(t, h.platform.GrantResourceCalls(), 1)
@@ -273,8 +290,69 @@ func TestProvidePlatformCreatesTheResourceAndPinsIt(t *testing.T) {
 	assert.Equal(t, "serverless-production", h.platform.SetEnvironmentDefaultCalls()[0].EnvironmentID)
 	assert.Equal(t, "res-role", h.platform.SetEnvironmentDefaultCalls()[0].ResourceID)
 
-	reqs, _ = h.svc.PlatformRequirements(a)
+	reqs, _ = h.svc.PlatformRequirements(context.Background(), a)
 	assert.True(t, reqs[0].Satisfied)
+}
+
+func TestProvidePlatformValidatesThePayload(t *testing.T) {
+	tests := []struct {
+		name      string
+		catalog   string
+		payload   map[string]any
+		wantField string
+		wantMsg   string
+		wantSent  map[string]any
+	}{
+		{name: "OIDC role with a chosen token level", catalog: "aws-serverless", payload: map[string]any{"arn": "a", "token_level": "project"}, wantSent: map[string]any{"arn": "a", "token_level": "project"}},
+		{name: "OIDC role with a token level the schema doesn't offer", catalog: "aws-serverless", payload: map[string]any{"arn": "a", "token_level": "galaxy"}, wantField: "token_level", wantMsg: "choose one of Organization, Project"},
+		{name: "OIDC role without an ARN", catalog: "aws-serverless", payload: map[string]any{"token_level": "project"}, wantField: "arn", wantMsg: "Role ARN is required"},
+		{name: "external ID role without its secret", catalog: "aws-legacy", payload: map[string]any{"arn": "a"}, wantField: "external_id", wantMsg: "External ID is required"},
+		{name: "external ID role", catalog: "aws-legacy", payload: map[string]any{"arn": "a", "external_id": "e"}, wantSent: map[string]any{"arn": "a", "external_id": "e"}},
+		{name: "a token level left empty takes the default", catalog: "aws-serverless", payload: map[string]any{"arn": "a", "token_level": ""}, wantSent: map[string]any{"arn": "a", "token_level": "organization"}},
+		{name: "a field the schema doesn't have", catalog: "aws-legacy", payload: map[string]any{"arn": "a", "external_id": "e", "token_level": "organization"}, wantField: "token_level", wantMsg: "unexpected field"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, domain.AccountModeShared)
+			a := h.signedUp(t)
+			_, err := h.svc.InstallCatalog(context.Background(), a, tt.catalog)
+			require.NoError(t, err)
+			a, err = h.store.GetAccount(context.Background(), a.ID)
+			require.NoError(t, err)
+
+			_, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", tt.payload)
+			if tt.wantField != "" {
+				var verr *domain.ValidationError
+				require.ErrorAs(t, err, &verr)
+				assert.Equal(t, tt.wantField, verr.Field)
+				assert.Equal(t, tt.wantMsg, verr.Message)
+				assert.Empty(t, h.platform.CreateResourceCalls())
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, h.platform.CreateResourceCalls(), 1)
+			assert.Equal(t, tt.wantSent, h.platform.CreateResourceCalls()[0].Payload)
+		})
+	}
+}
+
+func TestInstructionsAreWrittenForTheAccount(t *testing.T) {
+	h := newHarness(t, domain.AccountModeShared)
+	a := h.installed(t)
+	const rendered = "Audience `massdriver:rs-shared` on api.massdriver.cloud."
+
+	reqs, err := h.svc.PlatformRequirements(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, rendered, reqs[0].Type.Instructions[0].Markdown)
+	cat, err := h.svc.GetCatalog("aws-serverless")
+	require.NoError(t, err)
+	assert.Equal(t, "Audience `massdriver:ORG_ID` on {{issuer}}.", cat.Platforms[0].Instructions[0].Markdown, "the shared catalog is untouched")
+
+	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x"})
+	require.NoError(t, err)
+	view, err := h.svc.Project(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, rendered, view.Catalog.Platforms[0].Instructions[0].Markdown)
 }
 
 func TestProjectViewReadsPresetsFromTheBaseEnvironment(t *testing.T) {
@@ -345,7 +423,7 @@ func TestCreateEnvironmentValidation(t *testing.T) {
 	_, err := h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "dev"})
 	require.ErrorIs(t, err, domain.ErrConflict, "no environments before the credential is provided")
 
-	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
+	a, err = h.svc.ProvidePlatform(context.Background(), a, "aws-iam-role", "", map[string]any{"arn": "arn:aws:iam::1:role/x"})
 	require.NoError(t, err)
 	var verr *domain.ValidationError
 	_, err = h.svc.CreateEnvironment(context.Background(), h.user, a, domain.CreateEnvironmentInput{Slug: "Dev!"})

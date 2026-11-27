@@ -93,13 +93,13 @@ func TestErrorsMapToDomainSentinels(t *testing.T) {
 
 func TestMutationsSendInputsAndSurfaceValidation(t *testing.T) {
 	c, last, _ := server(t, `{"data":{"createResource":{"successful":true,"result":{"id":"res-1"}}}}`, 200)
-	id, err := c.CreateResource(context.Background(), "aws-iam-role", "My role", map[string]any{"arn": "arn:aws:iam::1:role/x", "external_id": "e"})
+	id, err := c.CreateResource(context.Background(), "aws-iam-role", "My role", map[string]any{"arn": "arn:aws:iam::1:role/x", "token_level": "organization"})
 	require.NoError(t, err)
 	assert.Equal(t, "res-1", id)
 	assert.Equal(t, "aws-iam-role", last.Variables["resourceTypeId"])
 	input := last.Variables["input"].(map[string]any)
 	assert.Equal(t, "My role", input["name"])
-	assert.JSONEq(t, `{"arn":"arn:aws:iam::1:role/x","external_id":"e"}`, input["payload"].(string), "Map scalars travel as JSON strings")
+	assert.JSONEq(t, `{"arn":"arn:aws:iam::1:role/x","token_level":"organization"}`, input["payload"].(string), "Map scalars travel as JSON strings")
 
 	c, last, _ = server(t, `{"data":{"createResourceGrant":{"successful":true,"result":{"id":"g"}}}}`, 200)
 	require.NoError(t, c.GrantResource(context.Background(), "res-1"))

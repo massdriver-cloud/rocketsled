@@ -89,39 +89,61 @@ ui:
     - label: AWS Console
       path: ./instructions/AWS Console.md
   schema:
-    ui:order: [external_id, arn, "*"]
+    ui:order: [arn, token_level, "*"]
 
 schema:
   title: AWS IAM Role
   description: One sentence shown above the form.
   type: object
   additionalProperties: false
-  required: [arn, external_id]
+  required: [arn, token_level]
   properties:
     arn:
       title: Role ARN
       description: Where to find it.
       type: string
-      pattern: ^arn:aws:iam::[0-9]{12}:role/.+$
+      pattern: ^arn:aws(-[a-z]+)*:iam::[0-9]{12}:role/[a-zA-Z0-9+=,.@_/-]+$
       message: { pattern: "Must be an IAM role ARN." }
-    external_id:
-      title: External ID
+    token_level:
+      title: Token level
+      description: Which Massdriver identity the role's trust policy accepts.
       type: string
-      $md.sensitive: true
+      default: organization
+      oneOf:
+        - { const: organization, title: Organization }
+        - { const: project, title: Project }
+        - { const: environment, title: Environment }
+        - { const: instance, title: Instance }
 ```
+
+This is the OIDC credential from
+[massdriver-catalogs/aws](https://github.com/massdriver-catalogs/aws/tree/main/platforms/aws-iam-role):
+the role trusts Massdriver's signed identity tokens, so nothing secret is stored.
+The older `{arn, external_id}` shape, where the role trusts Massdriver's AWS
+account and a shared secret, still works the same way.
 
 What Rocketsled does with it:
 
 - The `schema` becomes a form. Keep it flat: string, number, boolean and enum
   properties only, no nested objects or arrays. Every property needs `title` and
-  `description`, because that is all the customer sees. `required` is enforced
-  server-side; `pattern` and `message.pattern` are shown as validation hints.
+  `description`, because that is all the customer sees. A `oneOf` of
+  `{const, title}` (or an `enum`) is a select labelled by the titles, and
+  `default` preselects it. `required`, `oneOf` and `enum` are enforced
+  server-side, after defaults fill missing fields; `pattern` and
+  `message.pattern` are shown as validation hints.
 - `ui.schema["ui:order"]` sets field order.
 - Each `ui.instructions` entry becomes a tab of rendered markdown beside the form.
   Write them for someone who has never opened the cloud console. Each must end with
-  "paste these values into the form". The AWS ones in the reference catalog are the
-  bar: choose a secret, create the role with a trust policy on Massdriver's account
-  `308878630280` plus that external ID, attach a policy, copy the ARN.
+  "paste these values into the form". The customer has no `mass` CLI and never
+  sees Massdriver, so Rocketsled writes the account's values in before showing them:
+  - `{{organization_id}}` is the customer's Massdriver organization ID, and
+    `{{issuer}}` the host that signs its identity tokens (`api.massdriver.cloud`).
+  - The literal `ORG_ID`, which the upstream instructions use, becomes the
+    organization ID. A shell line that sets it (`ORG_ID=$(mass whoami ...)`) is
+    rewritten to set the value, so later `$ORG_ID` references keep working.
+  - Anything between `<!-- rocketsled:skip -->` and `<!-- /rocketsled:skip -->`
+    is left out. Wrap the steps only a Massdriver user can follow, like signing
+    in to `mass`, so the same file serves both.
 - The submitted values are stored as a resource of this type in the customer's
   organization, shared with every environment, and pinned as an environment default
   on the base environment and every environment the customer creates.

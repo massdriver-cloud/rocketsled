@@ -4,6 +4,7 @@ import { api, ApiError } from "../api";
 import type { Account, Catalog, PlatformRequirement } from "../types";
 import { Loading, Markdown, Notice, Pill, Steps } from "../components/ui";
 import { SchemaForm } from "../components/SchemaForm";
+import { schemaDefaults } from "../schema";
 
 // Start walks a new account from "no platform" to "ready": choose a catalog,
 // watch it install, connect the cloud credential it needs.
@@ -163,7 +164,14 @@ export function Credentials({ account, onAccount, standalone = false }: { accoun
   useEffect(() => {
     api
       .platforms()
-      .then(setReqs)
+      .then((rs) => {
+        setReqs(rs);
+        setValues((current) => {
+          const next = { ...current };
+          for (const r of rs) next[r.type.id] = { ...schemaDefaults(r.type.schema), ...current[r.type.id] };
+          return next;
+        });
+      })
       .catch((e: ApiError) => setLoadError(e.message));
   }, [account.id]);
 
