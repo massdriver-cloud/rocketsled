@@ -76,7 +76,7 @@ func newHarness(t *testing.T, mode domain.AccountMode) *harness {
 		store:     memory.New(),
 		user:      &domain.User{ID: "dev:cory", Provider: domain.ProviderDev, Login: "cory", Name: "Cory"},
 	}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		h.ids = append(h.ids, "id-"+string(rune('a'+i)))
 	}
 	h.platform.PingFunc = func(context.Context) (string, error) { return "RocketSled Test", nil }
@@ -428,7 +428,7 @@ func TestDeployAndDestroyEnvironment(t *testing.T) {
 }
 
 func TestNewOrganizationIDFitsTheLimit(t *testing.T) {
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		id := domain.NewOrganizationID()
 		assert.LessOrEqual(t, len(id), 20, id)
 		assert.Regexp(t, `^rs-[a-z]+-[a-z]+-\d{2}$|^rs-[a-z]+-\d{2}$`, id)

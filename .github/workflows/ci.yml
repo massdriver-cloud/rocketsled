@@ -22,12 +22,14 @@ jobs:
         run: |
           go generate ./...
           git diff --exit-code -- internal/domain/mocks
+      - name: Verify go.mod is tidy
+        run: go mod tidy -diff
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.13.2
 
   ui:
     name: UI
@@ -46,6 +48,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm build

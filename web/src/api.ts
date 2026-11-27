@@ -33,8 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   meta: () => request<Meta>("/api/v1/meta"),
-  passwordLogin: (login: string, password: string) =>
-    request<User>("/auth/password", { method: "POST", body: JSON.stringify({ login, password }) }),
+  passwordLogin: (login: string, password: string) => request<User>("/auth/password", { method: "POST", body: JSON.stringify({ login, password }) }),
   signUp: (login: string) => request<User>("/auth/signup", { method: "POST", body: JSON.stringify({ login }) }),
   offer: () => request<Offer>("/api/v1/offer"),
   createApp: (input: { slug: string; name: string; runtime: string; addons: string[]; presets: Record<string, string> }) =>

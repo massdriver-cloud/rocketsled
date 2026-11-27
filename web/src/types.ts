@@ -40,7 +40,17 @@ export interface JsonSchema {
   description?: string;
   type?: string;
   required?: string[];
-  properties?: Record<string, JsonSchema & { message?: { pattern?: string }; oneOf?: { const: unknown; title: string }[]; enum?: unknown[]; default?: unknown; examples?: unknown[]; pattern?: string }>;
+  properties?: Record<
+    string,
+    JsonSchema & {
+      message?: { pattern?: string };
+      oneOf?: { const: unknown; title: string }[];
+      enum?: unknown[];
+      default?: unknown;
+      examples?: unknown[];
+      pattern?: string;
+    }
+  >;
 }
 
 export interface PlatformType {

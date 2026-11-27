@@ -157,7 +157,10 @@ function Session() {
       .then(async (m) => {
         if (!m.account) m.account = await api.createAccount("");
         setMe(m);
-        api.offer().then(setOffer).catch(() => undefined);
+        api
+          .offer()
+          .then(setOffer)
+          .catch(() => undefined);
       })
       .catch(() => setMe(null));
   }, []);
@@ -280,7 +283,10 @@ const slugPattern = /^[a-z0-9]{1,20}$/;
 
 function PresetPicker({ component, value, onChange }: { component: OfferedComponent; value: string; onChange: (v: string) => void }) {
   const { skin, copy } = useSkin();
-  const index = Math.max(0, component.presets.findIndex((p) => p.name === value));
+  const index = Math.max(
+    0,
+    component.presets.findIndex((p) => p.name === value),
+  );
   if (component.presets.length === 0) return null;
   return (
     <div className="t-presets">
@@ -347,7 +353,10 @@ function NewApp() {
   if (offerError) return <Notice tone="bad">{offerError}</Notice>;
   if (!loaded) return <Loading />;
   const rt = loaded.runtimes.find((r) => r.id === runtime);
-  const slug = name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 20);
   const pick = (c: OfferedComponent) => presets[c.slug] ?? c.presets[0]?.name ?? "";
 
   async function submit(e: React.FormEvent) {
@@ -388,7 +397,12 @@ function NewApp() {
           <div className={`field ${error?.field === "slug" ? "field--error" : ""}`}>
             <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-app" autoFocus autoComplete="off" aria-label="Name" />
             <span className="hint">
-              Lowercase letters and digits, up to 20. {slug && rt && <span className="mono">{rt.project}-{slug}</span>}
+              Lowercase letters and digits, up to 20.{" "}
+              {slug && rt && (
+                <span className="mono">
+                  {rt.project}-{slug}
+                </span>
+              )}
             </span>
             {error?.field === "slug" && <span className="field__error">{error.message}</span>}
           </div>

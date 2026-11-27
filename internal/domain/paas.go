@@ -524,7 +524,7 @@ func picksOf(description string) map[string]string {
 		return nil
 	}
 	out := map[string]string{}
-	for _, part := range strings.Split(m[1], ",") {
+	for part := range strings.SplitSeq(m[1], ",") {
 		if slug, preset, ok := strings.Cut(part, "="); ok && slug != "" {
 			out[slug] = preset
 		}

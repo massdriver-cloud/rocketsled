@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -168,7 +169,7 @@ func (s *Service) Providers() []Provider {
 	if s.open {
 		out = append(out, ProviderOpen)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 

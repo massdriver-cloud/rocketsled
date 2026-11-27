@@ -1,11 +1,14 @@
 GO       ?= go
 BIN      := bin/rocketsled
 UI_DIR   := web
-# A golangci-lint built with an older Go than go.mod targets refuses to run;
-# `make lint-tool` builds one with the current toolchain into bin/.
+GOLANGCI_VERSION := v2.13.2
+# go.mod asks for a newer Go than the one on PATH may be; with GOTOOLCHAIN=auto
+# the go command switches, but `-cover` builds shell out to whichever `go` is
+# first on PATH. Putting the selected toolchain first keeps them the same.
+export PATH := $(shell $(GO) env GOROOT)/bin:$(PATH)
 GOLANGCI ?= $(shell test -x bin/golangci-lint && echo bin/golangci-lint || echo golangci-lint)
 
-.PHONY: all build ui ui-dev run providers test lint lint-tool fmt generate tidy clean docker
+.PHONY: all build ui ui-dev run providers test lint lint-go lint-ui lint-tool fmt fmt-check check hooks generate tidy clean docker
 
 all: ui build
 
@@ -27,15 +30,34 @@ providers:
 test:
 	$(GO) test -race -cover ./...
 
-lint:
+lint: lint-go lint-ui
+
+lint-go:
 	$(GOLANGCI) run ./...
+
+lint-ui:
 	cd $(UI_DIR) && pnpm lint && pnpm typecheck
 
 lint-tool:
-	GOBIN=$(CURDIR)/bin $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	GOBIN=$(CURDIR)/bin $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
 fmt:
 	$(GOLANGCI) fmt ./...
+	cd $(UI_DIR) && pnpm format
+
+fmt-check:
+	@test -z "$$($(GOLANGCI) fmt --diff ./... 2>&1)" || { $(GOLANGCI) fmt --diff ./...; echo "run make fmt"; exit 1; }
+	cd $(UI_DIR) && pnpm format:check
+
+# Everything CI checks, in the order that fails fastest.
+check: fmt-check
+	$(GO) generate ./...
+	git diff --exit-code -- internal/domain/mocks
+	$(GO) mod tidy -diff
+	$(MAKE) lint test
+
+hooks:
+	git config core.hooksPath .githooks
 
 generate:
 	$(GO) generate ./...

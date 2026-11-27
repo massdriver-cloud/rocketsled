@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -77,12 +78,8 @@ func (s *Skin) Head() string {
 	fmt.Fprintf(&b, ":root{color-scheme:%s;%s}\n", cssValue(scheme), declarations(light))
 	if dark, ok := s.Tokens["dark"]; ok && strings.Contains(scheme, "dark") {
 		merged := map[string]string{}
-		for k, v := range light {
-			merged[k] = v
-		}
-		for k, v := range dark {
-			merged[k] = v
-		}
+		maps.Copy(merged, light)
+		maps.Copy(merged, dark)
 		fmt.Fprintf(&b, "@media (prefers-color-scheme: dark){:root{%s}}\n", declarations(merged))
 	}
 	b.WriteString("</style>\n")
