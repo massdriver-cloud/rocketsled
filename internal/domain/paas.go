@@ -616,8 +616,12 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 			params[c.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), s.pinnedFor(rt, c.Slug, vars))
 		}
 		envID, links := e.ID, ro.links
+		if !s.claim(envID) {
+			continue
+		}
 		s.log.Info("resume: finishing an interrupted app", "environment", envID, "components", len(params))
 		s.runAsync(func() {
+			defer s.release(envID)
 			if err := s.deployLayers(context.Background(), platform, envID, params, links, "Resumed after a restart", true); err != nil {
 				s.log.Warn("resume", "environment", envID, "err", err)
 			}
