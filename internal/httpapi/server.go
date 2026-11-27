@@ -16,6 +16,7 @@ import (
 
 	"github.com/massdriver-cloud/rocketsled/internal/auth"
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
+	"github.com/massdriver-cloud/rocketsled/internal/skin"
 )
 
 // Server holds the handlers' dependencies.
@@ -26,6 +27,9 @@ type Server struct {
 	ui       fs.FS
 	log      *slog.Logger
 	mux      *http.ServeMux
+	skin     *skin.Skin
+	mode     string
+	index    []byte
 }
 
 // Options configures a Server.
@@ -35,6 +39,10 @@ type Options struct {
 	BaseURL  string
 	UI       fs.FS
 	Logger   *slog.Logger
+	// Skin, when set, replaces Rocketsled's own name and look.
+	Skin *skin.Skin
+	// Mode is the account mode, which decides which UI the browser shows.
+	Mode string
 }
 
 // New wires every route.
@@ -46,7 +54,10 @@ func New(o Options) *Server {
 		ui:       o.UI,
 		log:      o.Logger,
 		mux:      http.NewServeMux(),
+		skin:     o.Skin,
+		mode:     o.Mode,
 	}
+	s.index = s.renderIndex()
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -60,7 +71,10 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	m.HandleFunc("POST /auth/password", s.handlePasswordLogin)
 	m.HandleFunc("GET /auth/{provider}/login", s.handleLogin)
+	m.HandleFunc("GET /skin/{file}", s.handleSkinFile)
+	m.HandleFunc("GET /api/v1/offer", s.account(s.handleOffer))
 	m.HandleFunc("GET /auth/{provider}/callback", s.handleCallback)
 
 	m.HandleFunc("GET /api/v1/meta", s.handleMeta)
@@ -238,7 +252,75 @@ func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleMeta(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"providers": s.svc.Providers(), "baseUrl": s.baseURL})
+	meta := map[string]any{"providers": s.svc.Providers(), "baseUrl": s.baseURL, "mode": s.mode}
+	if s.skin != nil {
+		sk := *s.skin
+		sk.Logo, sk.Favicon, sk.CSS = skin.URL(sk.Logo), skin.URL(sk.Favicon), skin.URL(sk.CSS)
+		meta["skin"] = sk
+	}
+	writeJSON(w, http.StatusOK, meta)
+}
+
+func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	user, err := s.svc.SignInWithPassword(r.Context(), in.Login, in.Password)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	s.sessions.SetSession(w, user.ID)
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleOffer(w http.ResponseWriter, r *http.Request) {
+	offer, err := s.svc.Offer(r.Context())
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, offer)
+}
+
+func (s *Server) handleSkinFile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("file")
+	if s.skin == nil || (name != s.skin.Logo && name != s.skin.Favicon && name != s.skin.CSS) {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	http.ServeFileFS(w, r, s.skin.Files, name)
+}
+
+// renderIndex puts the skin's title, icon and tokens into index.html.
+func (s *Server) renderIndex() []byte {
+	if s.ui == nil || s.skin == nil {
+		return nil
+	}
+	raw, err := fs.ReadFile(s.ui, "index.html")
+	if err != nil {
+		return nil
+	}
+	page := string(raw)
+	if start := strings.Index(page, "<title>"); start >= 0 {
+		if end := strings.Index(page[start:], "</title>"); end >= 0 {
+			page = page[:start] + page[start+end+len("</title>"):]
+		}
+	}
+	if s.skin.Favicon != "" {
+		if start := strings.Index(page, `<link rel="icon"`); start >= 0 {
+			if end := strings.Index(page[start:], ">"); end >= 0 {
+				page = page[:start] + page[start+end+1:]
+			}
+		}
+	}
+	return []byte(strings.Replace(page, "</head>", s.skin.Head()+"</head>", 1))
 }
 
 // meResponse is the signed-in user and their account, if signup is complete.
@@ -396,6 +478,17 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 	if name == "" {
 		name = "index.html"
+	}
+	if s.index != nil && (name == "index.html" || !strings.HasPrefix(name, "assets/")) {
+		if f, err := s.ui.Open(name); name == "index.html" || err != nil {
+			if err == nil {
+				_ = f.Close()
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(s.index)
+			return
+		}
 	}
 	if f, err := s.ui.Open(name); err == nil {
 		_ = f.Close()

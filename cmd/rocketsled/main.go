@@ -25,6 +25,7 @@ import (
 	"github.com/massdriver-cloud/rocketsled/internal/scm/dev"
 	"github.com/massdriver-cloud/rocketsled/internal/scm/github"
 	"github.com/massdriver-cloud/rocketsled/internal/scm/gitlab"
+	"github.com/massdriver-cloud/rocketsled/internal/skin"
 	"github.com/massdriver-cloud/rocketsled/internal/store/sqlite"
 	"github.com/massdriver-cloud/rocketsled/web"
 )
@@ -109,6 +110,10 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 		log.Warn("dev sign-in stub enabled; anyone who can reach this server is signed in as " + p.Login)
 		scms = append(scms, dev.New(p.Login))
 	}
+	password := ""
+	if p := cfg.Auth.Providers.Password; p != nil {
+		password = p.Password
+	}
 	creatorToken := cfg.Massdriver.OrgCreatorToken
 	if creatorToken == "" {
 		creatorToken = cfg.Massdriver.APIKey
@@ -124,6 +129,8 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 		OrgCreator:       domain.Credential{URL: cfg.Massdriver.URL, APIKey: creatorToken},
 		DataDir:          cfg.DataDir,
 		StableReleases:   cfg.Catalogs.ReleaseChannel == "stable",
+		PaaS:             paasFrom(cfg.PaaS),
+		Password:         password,
 		Logger:           log,
 	})
 	if err != nil {
@@ -160,6 +167,12 @@ func serve(args []string, log *slog.Logger) error {
 		log.Info("massdriver connected", "organization", org, "mode", cfg.Massdriver.AccountMode, "catalogs", len(a.catalogs))
 	}
 
+	var sk *skin.Skin
+	if cfg.Skin != "" {
+		if sk, err = skin.Load(cfg.Skin); err != nil {
+			return err
+		}
+	}
 	ui := web.Dist()
 	if ui == nil {
 		log.Warn("UI not built; serving API only (run `make ui`)")
@@ -170,6 +183,8 @@ func serve(args []string, log *slog.Logger) error {
 		BaseURL:  cfg.Server.BaseURL,
 		UI:       ui,
 		Logger:   log,
+		Skin:     sk,
+		Mode:     cfg.Massdriver.AccountMode,
 	})
 	srv := &http.Server{Addr: cfg.Server.Addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	errc := make(chan error, 1)
@@ -217,4 +232,27 @@ func check(args []string, log *slog.Logger) error {
 			c.ID, c.Name, len(c.Platforms), len(c.ResourceTypes), len(c.Bundles), c.Bootstrap.Project, c.Bootstrap.BaseEnvironment)
 	}
 	return nil
+}
+
+func paasFrom(p *config.PaaS) *domain.PaaS {
+	if p == nil {
+		return nil
+	}
+	out := &domain.PaaS{Pinned: p.Pinned, Highlights: p.Highlights, Plans: map[string]map[string]domain.Plan{}}
+	for _, r := range p.Runtimes {
+		out.Runtimes = append(out.Runtimes, domain.Runtime{
+			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
+			AppComponent: r.AppComponent, ImageParam: r.ImageParam,
+		})
+	}
+	for _, a := range p.Addons {
+		out.Addons = append(out.Addons, domain.Addon{ID: a.ID, Title: a.Title, Summary: a.Summary})
+	}
+	for component, plans := range p.Plans {
+		out.Plans[component] = map[string]domain.Plan{}
+		for name, plan := range plans {
+			out.Plans[component][name] = domain.Plan{Price: plan.Price, Summary: plan.Summary}
+		}
+	}
+	return out
 }
