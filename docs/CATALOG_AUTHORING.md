@@ -139,8 +139,9 @@ What Rocketsled does with it:
   - `{{organization_id}}` is the customer's Massdriver organization ID, and
     `{{issuer}}` the host that signs its identity tokens (`api.massdriver.cloud`).
   - The literal `ORG_ID`, which the upstream instructions use, becomes the
-    organization ID. A shell line that sets it (`ORG_ID=$(mass whoami ...)`) is
-    rewritten to set the value, so later `$ORG_ID` references keep working.
+    organization ID, and so do `$ORG_ID` and `${ORG_ID}`. A shell assignment
+    (`ORG_ID=$(mass whoami ...)`) keeps its line but sets the value, so the step
+    that sets it can be skipped or kept.
   - Anything between `<!-- rocketsled:skip -->` and `<!-- /rocketsled:skip -->`
     is left out. Wrap the steps only a Massdriver user can follow, like signing
     in to `mass`, so the same file serves both.

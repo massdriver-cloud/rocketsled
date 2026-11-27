@@ -35,10 +35,22 @@ func TestRenderInstructions(t *testing.T) {
 			want: "Enter `massdriver:rs-misty-river-42`.\n\"api.massdriver.cloud:sub\": \"org:rs-misty-river-42\"",
 		},
 		{
-			name: "a shell assignment sets the value and references keep working",
+			name: "a shell assignment and references get the value",
 			in:   "```bash\nORG_ID=$(mass whoami -o json | jq -r .organization.id)\necho \"$ORG_ID\" ${ORG_ID}\n  export ORG_ID=x\n```",
 			vars: vars,
-			want: "```bash\nORG_ID=rs-misty-river-42\necho \"$ORG_ID\" ${ORG_ID}\n  export ORG_ID=rs-misty-river-42\n```",
+			want: "```bash\nORG_ID=rs-misty-river-42\necho \"rs-misty-river-42\" rs-misty-river-42\n  export ORG_ID=rs-misty-river-42\n```",
+		},
+		{
+			name: "references still work when the step that set ORG_ID is skipped",
+			in:   "<!-- rocketsled:skip -->\nORG_ID=$(mass whoami)\n<!-- /rocketsled:skip -->\naws iam create-open-id-connect-provider --client-id-list \"massdriver:$ORG_ID\"",
+			vars: vars,
+			want: "aws iam create-open-id-connect-provider --client-id-list \"massdriver:rs-misty-river-42\"",
+		},
+		{
+			name: "only the assigned value is replaced, not the rest of the line",
+			in:   "export ORG_ID=$(mass whoami) && echo $ORG_ID\nORG_ID=x aws sts get-caller-identity",
+			vars: vars,
+			want: "export ORG_ID=rs-misty-river-42 && echo rs-misty-river-42\nORG_ID=rs-misty-river-42 aws sts get-caller-identity",
 		},
 		{
 			name: "longer names that contain ORG_ID are left alone",

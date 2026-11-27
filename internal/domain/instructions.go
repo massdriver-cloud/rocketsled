@@ -36,10 +36,11 @@ func instructionVarsFor(account *Account, cred Credential) InstructionVars {
 var (
 	skipBlock = regexp.MustCompile(`(?s)<!--\s*rocketsled:skip\s*-->.*?<!--\s*/rocketsled:skip\s*-->\n?`)
 	// Upstream instructions set ORG_ID from `mass whoami`, which a Rocketsled
-	// customer doesn't have, so an assignment becomes the value itself and the
-	// shell references that follow keep working.
-	orgIDAssignment = regexp.MustCompile(`(?m)^(\s*(?:export\s+)?)ORG_ID=.*$`)
-	orgIDToken      = regexp.MustCompile(`(\$\{?)?\bORG_ID\b(=)?`)
+	// customer doesn't have. The value is written in everywhere, the assignment
+	// included, so the step that sets it can be skipped without leaving a shell
+	// reference empty.
+	orgIDAssignment = regexp.MustCompile(`\bORG_ID=(\$\([^)]*\)|"[^"]*"|'[^']*'|[^\s;&|]+)`)
+	orgIDToken      = regexp.MustCompile(`\$\{ORG_ID\}|\$ORG_ID\b|\bORG_ID\b(=)?`)
 )
 
 // RenderInstructions fills an instruction's placeholders with the account's
@@ -50,9 +51,9 @@ func RenderInstructions(markdown string, vars InstructionVars) string {
 	if vars.OrganizationID == "" {
 		return out
 	}
-	out = orgIDAssignment.ReplaceAllString(out, "${1}ORG_ID="+vars.OrganizationID)
+	out = orgIDAssignment.ReplaceAllLiteralString(out, "ORG_ID="+vars.OrganizationID)
 	return orgIDToken.ReplaceAllStringFunc(out, func(m string) string {
-		if strings.HasPrefix(m, "$") || strings.HasSuffix(m, "=") {
+		if strings.HasSuffix(m, "=") {
 			return m
 		}
 		return vars.OrganizationID
