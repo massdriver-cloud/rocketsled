@@ -638,7 +638,7 @@ mutation RocketsledCreateServiceAccount($organizationId: ID!, $input: CreateServ
   createServiceAccount(organizationId: $organizationId, input: $input) {
     successful
     messages { field message code }
-    result { id token }
+    result { id defaultAccessToken { token } }
   }
 }`
 
@@ -646,8 +646,10 @@ mutation RocketsledCreateServiceAccount($organizationId: ID!, $input: CreateServ
 func (c *Client) CreateServiceAccount(ctx context.Context, name string) (string, error) {
 	var out struct {
 		CreateServiceAccount payload[struct {
-			ID    string `json:"id"`
-			Token string `json:"token"`
+			ID                 string `json:"id"`
+			DefaultAccessToken *struct {
+				Token string `json:"token"`
+			} `json:"defaultAccessToken"`
 		}] `json:"createServiceAccount"`
 	}
 	vars := map[string]any{"input": map[string]any{
@@ -661,10 +663,11 @@ func (c *Client) CreateServiceAccount(ctx context.Context, name string) (string,
 	if err := out.CreateServiceAccount.check("createServiceAccount"); err != nil {
 		return "", err
 	}
-	if out.CreateServiceAccount.Result == nil || out.CreateServiceAccount.Result.Token == "" {
+	res := out.CreateServiceAccount.Result
+	if res == nil || res.DefaultAccessToken == nil || res.DefaultAccessToken.Token == "" {
 		return "", errors.New("createServiceAccount returned no token")
 	}
-	return out.CreateServiceAccount.Result.Token, nil
+	return res.DefaultAccessToken.Token, nil
 }
 
 const viewerQuery = `
