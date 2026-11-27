@@ -112,7 +112,7 @@ func localID(full, parent string) string {
 }
 
 const environmentFields = `
-    id name
+    id name description
     project { id }
     instances {
       id name status params paramsSchema resolvedVersion deployedVersion
@@ -129,9 +129,10 @@ query RocketsledEnvironment($organizationId: ID!, $id: ID!) {
 }`
 
 type gqlEnvironment struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Project struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Project     struct {
 		ID string `json:"id"`
 	} `json:"project"`
 	Instances []struct {
@@ -191,6 +192,7 @@ func toEnvironment(e *gqlEnvironment) *domain.PlatformEnvironment {
 	env := &domain.PlatformEnvironment{
 		ID:          e.ID,
 		Name:        e.Name,
+		Description: e.Description,
 		ProjectID:   e.Project.ID,
 		Instances:   make([]domain.PlatformInstance, 0, len(e.Instances)),
 		Unfulfilled: make([]domain.UnfulfilledDependency, 0, len(e.UnfulfilledDependencies)),
@@ -479,15 +481,45 @@ mutation RocketsledDeployInstance($organizationId: ID!, $id: ID!, $input: Create
 
 // DeployInstance provisions one instance with exactly these params.
 func (c *Client) DeployInstance(ctx context.Context, instanceID string, params map[string]any, message string) error {
+	return c.createDeployment(ctx, instanceID, "PROVISION", params, message)
+}
+
+// DecommissionInstance tears down one instance. Massdriver still validates params, so
+// the instance's current ones are sent.
+func (c *Client) DecommissionInstance(ctx context.Context, instanceID string, params map[string]any, message string) error {
+	return c.createDeployment(ctx, instanceID, "DECOMMISSION", params, message)
+}
+
+func (c *Client) createDeployment(ctx context.Context, instanceID, action string, params map[string]any, message string) error {
 	var out struct {
 		CreateDeployment payload[struct{ ID string }] `json:"createDeployment"`
 	}
 	vars := map[string]any{
 		"id":    instanceID,
-		"input": map[string]any{"action": "PROVISION", "message": message, "params": mapArg(params)},
+		"input": map[string]any{"action": action, "message": message, "params": mapArg(params)},
 	}
 	if err := c.do(ctx, createDeploymentMutation, vars, &out); err != nil {
 		return err
 	}
 	return out.CreateDeployment.check("createDeployment")
+}
+
+const updateEnvironmentMutation = `
+mutation RocketsledUpdateEnvironment($organizationId: ID!, $id: ID!, $input: UpdateEnvironmentInput!) {
+  updateEnvironment(organizationId: $organizationId, id: $id, input: $input) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`
+
+func (c *Client) SetEnvironmentDescription(ctx context.Context, environmentID, description string) error {
+	var out struct {
+		UpdateEnvironment payload[struct{ ID string }] `json:"updateEnvironment"`
+	}
+	vars := map[string]any{"id": environmentID, "input": map[string]any{"description": description}}
+	if err := c.do(ctx, updateEnvironmentMutation, vars, &out); err != nil {
+		return err
+	}
+	return out.UpdateEnvironment.check("updateEnvironment")
 }

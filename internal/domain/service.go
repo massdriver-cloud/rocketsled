@@ -1083,19 +1083,34 @@ func (s *Service) DeployEnvironment(ctx context.Context, user *User, account *Ac
 	if err != nil {
 		return nil, err
 	}
-	if env.State == EnvironmentStateDecommissioning {
-		return nil, fmt.Errorf("%w: the environment is being destroyed", ErrConflict)
-	}
 	platform, _, err := s.platformFor(ctx, account)
 	if err != nil {
 		return nil, err
+	}
+	envID := env.EnvironmentID
+	return s.startRun(ctx, user, env, TriggerDeploy, "", func(bg context.Context) error {
+		if s.tenant() {
+			return s.redeployTenant(bg, platform, env, user)
+		}
+		if err := platform.DeployEnvironment(bg, envID); err != nil {
+			return fmt.Errorf("deploy: %w", err)
+		}
+		return nil
+	})
+}
+
+// startRun records the next numbered run of env, marks env deploying and does
+// work in the background, recording how it ended.
+func (s *Service) startRun(ctx context.Context, user *User, env *Environment, trigger RunTrigger, summary string, work func(context.Context) error) (*Run, error) {
+	if env.State == EnvironmentStateDecommissioning {
+		return nil, fmt.Errorf("%w: the environment is being destroyed", ErrConflict)
 	}
 	previous, err := s.store.ListRuns(ctx, env.ID, 1)
 	if err != nil {
 		return nil, err
 	}
 	now := s.now()
-	run := &Run{ID: s.newID(), EnvironmentID: env.ID, Number: 1, Trigger: TriggerDeploy, Status: RunStatusQueued, RequestedBy: user.ID, CreatedAt: now, UpdatedAt: now}
+	run := &Run{ID: s.newID(), EnvironmentID: env.ID, Number: 1, Trigger: trigger, Status: RunStatusQueued, Message: summary, RequestedBy: user.ID, CreatedAt: now, UpdatedAt: now}
 	if len(previous) > 0 {
 		run.Number = previous[0].Number + 1
 	}
@@ -1107,17 +1122,10 @@ func (s *Service) DeployEnvironment(ctx context.Context, user *User, account *Ac
 	if err := s.store.UpdateEnvironment(ctx, env); err != nil {
 		return nil, err
 	}
-	envID, envRecordID := env.EnvironmentID, env.ID
-	runCopy := *run
+	envRecordID, runCopy := env.ID, *run
 	s.runAsync(func() {
 		bg := context.Background()
-		var err error
-		if s.tenant() {
-			err = s.redeployTenant(bg, platform, env, user)
-		} else if err = platform.DeployEnvironment(bg, envID); err != nil {
-			err = fmt.Errorf("deploy: %w", err)
-		}
-		s.finishRun(bg, &runCopy, envRecordID, err)
+		s.finishRun(bg, &runCopy, envRecordID, work(bg))
 	})
 	return run, nil
 }

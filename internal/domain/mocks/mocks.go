@@ -34,6 +34,9 @@ var _ domain.Platform = &PlatformMock{}
 //			DecommissionEnvironmentFunc: func(ctx context.Context, environmentID string) error {
 //				panic("mock out the DecommissionEnvironment method")
 //			},
+//			DecommissionInstanceFunc: func(ctx context.Context, instanceID string, params map[string]any, message string) error {
+//				panic("mock out the DecommissionInstance method")
+//			},
 //			DeleteEnvironmentFunc: func(ctx context.Context, environmentID string) error {
 //				panic("mock out the DeleteEnvironment method")
 //			},
@@ -61,6 +64,9 @@ var _ domain.Platform = &PlatformMock{}
 //			SetEnvironmentDefaultFunc: func(ctx context.Context, environmentID string, resourceID string) error {
 //				panic("mock out the SetEnvironmentDefault method")
 //			},
+//			SetEnvironmentDescriptionFunc: func(ctx context.Context, environmentID string, description string) error {
+//				panic("mock out the SetEnvironmentDescription method")
+//			},
 //		}
 //
 //		// use mockedPlatform in code that requires domain.Platform
@@ -82,6 +88,9 @@ type PlatformMock struct {
 
 	// DecommissionEnvironmentFunc mocks the DecommissionEnvironment method.
 	DecommissionEnvironmentFunc func(ctx context.Context, environmentID string) error
+
+	// DecommissionInstanceFunc mocks the DecommissionInstance method.
+	DecommissionInstanceFunc func(ctx context.Context, instanceID string, params map[string]any, message string) error
 
 	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
 	DeleteEnvironmentFunc func(ctx context.Context, environmentID string) error
@@ -109,6 +118,9 @@ type PlatformMock struct {
 
 	// SetEnvironmentDefaultFunc mocks the SetEnvironmentDefault method.
 	SetEnvironmentDefaultFunc func(ctx context.Context, environmentID string, resourceID string) error
+
+	// SetEnvironmentDescriptionFunc mocks the SetEnvironmentDescription method.
+	SetEnvironmentDescriptionFunc func(ctx context.Context, environmentID string, description string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -156,6 +168,17 @@ type PlatformMock struct {
 			Ctx context.Context
 			// EnvironmentID is the environmentID argument value.
 			EnvironmentID string
+		}
+		// DecommissionInstance holds details about calls to the DecommissionInstance method.
+		DecommissionInstance []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// InstanceID is the instanceID argument value.
+			InstanceID string
+			// Params is the params argument value.
+			Params map[string]any
+			// Message is the message argument value.
+			Message string
 		}
 		// DeleteEnvironment holds details about calls to the DeleteEnvironment method.
 		DeleteEnvironment []struct {
@@ -224,21 +247,32 @@ type PlatformMock struct {
 			// ResourceID is the resourceID argument value.
 			ResourceID string
 		}
+		// SetEnvironmentDescription holds details about calls to the SetEnvironmentDescription method.
+		SetEnvironmentDescription []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
+			// Description is the description argument value.
+			Description string
+		}
 	}
-	lockCopyInstance            sync.RWMutex
-	lockCreateOrganization      sync.RWMutex
-	lockCreateResource          sync.RWMutex
-	lockCreateServiceAccount    sync.RWMutex
-	lockDecommissionEnvironment sync.RWMutex
-	lockDeleteEnvironment       sync.RWMutex
-	lockDeployEnvironment       sync.RWMutex
-	lockDeployInstance          sync.RWMutex
-	lockForkEnvironment         sync.RWMutex
-	lockGetEnvironment          sync.RWMutex
-	lockGetProject              sync.RWMutex
-	lockGrantResource           sync.RWMutex
-	lockPing                    sync.RWMutex
-	lockSetEnvironmentDefault   sync.RWMutex
+	lockCopyInstance              sync.RWMutex
+	lockCreateOrganization        sync.RWMutex
+	lockCreateResource            sync.RWMutex
+	lockCreateServiceAccount      sync.RWMutex
+	lockDecommissionEnvironment   sync.RWMutex
+	lockDecommissionInstance      sync.RWMutex
+	lockDeleteEnvironment         sync.RWMutex
+	lockDeployEnvironment         sync.RWMutex
+	lockDeployInstance            sync.RWMutex
+	lockForkEnvironment           sync.RWMutex
+	lockGetEnvironment            sync.RWMutex
+	lockGetProject                sync.RWMutex
+	lockGrantResource             sync.RWMutex
+	lockPing                      sync.RWMutex
+	lockSetEnvironmentDefault     sync.RWMutex
+	lockSetEnvironmentDescription sync.RWMutex
 }
 
 // CopyInstance calls CopyInstanceFunc.
@@ -455,6 +489,53 @@ func (mock *PlatformMock) DecommissionEnvironmentCalls() []struct {
 	mock.lockDecommissionEnvironment.RLock()
 	calls = mock.calls.DecommissionEnvironment
 	mock.lockDecommissionEnvironment.RUnlock()
+	return calls
+}
+
+// DecommissionInstance calls DecommissionInstanceFunc.
+func (mock *PlatformMock) DecommissionInstance(ctx context.Context, instanceID string, params map[string]any, message string) error {
+	callInfo := struct {
+		Ctx        context.Context
+		InstanceID string
+		Params     map[string]any
+		Message    string
+	}{
+		Ctx:        ctx,
+		InstanceID: instanceID,
+		Params:     params,
+		Message:    message,
+	}
+	mock.lockDecommissionInstance.Lock()
+	mock.calls.DecommissionInstance = append(mock.calls.DecommissionInstance, callInfo)
+	mock.lockDecommissionInstance.Unlock()
+	if mock.DecommissionInstanceFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.DecommissionInstanceFunc(ctx, instanceID, params, message)
+}
+
+// DecommissionInstanceCalls gets all the calls that were made to DecommissionInstance.
+// Check the length with:
+//
+//	len(mockedPlatform.DecommissionInstanceCalls())
+func (mock *PlatformMock) DecommissionInstanceCalls() []struct {
+	Ctx        context.Context
+	InstanceID string
+	Params     map[string]any
+	Message    string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		InstanceID string
+		Params     map[string]any
+		Message    string
+	}
+	mock.lockDecommissionInstance.RLock()
+	calls = mock.calls.DecommissionInstance
+	mock.lockDecommissionInstance.RUnlock()
 	return calls
 }
 
@@ -818,6 +899,49 @@ func (mock *PlatformMock) SetEnvironmentDefaultCalls() []struct {
 	mock.lockSetEnvironmentDefault.RLock()
 	calls = mock.calls.SetEnvironmentDefault
 	mock.lockSetEnvironmentDefault.RUnlock()
+	return calls
+}
+
+// SetEnvironmentDescription calls SetEnvironmentDescriptionFunc.
+func (mock *PlatformMock) SetEnvironmentDescription(ctx context.Context, environmentID string, description string) error {
+	callInfo := struct {
+		Ctx           context.Context
+		EnvironmentID string
+		Description   string
+	}{
+		Ctx:           ctx,
+		EnvironmentID: environmentID,
+		Description:   description,
+	}
+	mock.lockSetEnvironmentDescription.Lock()
+	mock.calls.SetEnvironmentDescription = append(mock.calls.SetEnvironmentDescription, callInfo)
+	mock.lockSetEnvironmentDescription.Unlock()
+	if mock.SetEnvironmentDescriptionFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.SetEnvironmentDescriptionFunc(ctx, environmentID, description)
+}
+
+// SetEnvironmentDescriptionCalls gets all the calls that were made to SetEnvironmentDescription.
+// Check the length with:
+//
+//	len(mockedPlatform.SetEnvironmentDescriptionCalls())
+func (mock *PlatformMock) SetEnvironmentDescriptionCalls() []struct {
+	Ctx           context.Context
+	EnvironmentID string
+	Description   string
+} {
+	var calls []struct {
+		Ctx           context.Context
+		EnvironmentID string
+		Description   string
+	}
+	mock.lockSetEnvironmentDescription.RLock()
+	calls = mock.calls.SetEnvironmentDescription
+	mock.lockSetEnvironmentDescription.RUnlock()
 	return calls
 }
 
