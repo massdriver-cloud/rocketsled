@@ -51,8 +51,9 @@ fmt-check:
 
 # Everything CI checks, in the order that fails fastest.
 check: fmt-check
+	@mkdir -p bin && cp internal/domain/mocks/mocks.go bin/mocks.go.before
 	$(GO) generate ./...
-	git diff --exit-code -- internal/domain/mocks
+	@cmp -s bin/mocks.go.before internal/domain/mocks/mocks.go || { echo "the mocks were stale and are regenerated now; commit them"; exit 1; }
 	$(GO) mod tidy -diff
 	$(MAKE) lint test
 
