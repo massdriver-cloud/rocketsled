@@ -278,7 +278,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	vars := map[string]string{"environment_id": forked.ID, "app": in.Slug, "runtime": rt.ID}
 	params := map[string]map[string]any{}
 	for _, c := range picked {
-		params[c.Slug] = MergeParams(presets[c.Slug].Params, renderPinned(s.paas.Pinned[c.Slug], vars))
+		params[c.Slug] = MergeParams(MergeParams(map[string]any{}, presets[c.Slug].Params), renderPinned(s.paas.Pinned[c.Slug], vars))
 	}
 	links, envRecordID, runCopy := ro.links, env.ID, *run
 	s.runAsync(func() {
