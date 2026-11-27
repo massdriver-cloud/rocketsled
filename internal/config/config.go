@@ -137,6 +137,8 @@ type Catalogs struct {
 	Dir string `yaml:"dir"`
 	// Dirs are more directories of catalogs, relative to the config file.
 	Dirs []string `yaml:"dirs"`
+	// Include, when set, lists the only catalog IDs this server offers.
+	Include []string `yaml:"include"`
 	// ReleaseChannel is "stable" or "development" for published bundles.
 	ReleaseChannel string `yaml:"release_channel"`
 }
@@ -310,6 +312,9 @@ func (c *Config) Validate() error {
 	}
 	if slices.Contains(c.Catalogs.Dirs, "") {
 		errs = append(errs, errors.New("catalogs.dirs must not have empty entries"))
+	}
+	if slices.Contains(c.Catalogs.Include, "") {
+		errs = append(errs, errors.New("catalogs.include must not have empty entries"))
 	}
 	if c.Auth.Providers.GitHub == nil && c.Auth.Providers.GitLab == nil && c.Auth.Providers.Dev == nil && c.Auth.Providers.Password == nil && c.Auth.Providers.Open == nil {
 		errs = append(errs, errors.New("auth.providers must configure github, gitlab, open, password or dev"))

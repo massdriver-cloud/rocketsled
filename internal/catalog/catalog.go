@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -50,9 +52,10 @@ type platformFile struct {
 	} `yaml:"ui"`
 }
 
-// LoadAll reads every catalog under each of dirs, sorted by name. A catalog ID
-// found in two places is an error.
-func LoadAll(dirs ...string) ([]domain.Catalog, error) {
+// LoadAll reads the catalogs under each of dirs, sorted by name. When include
+// is not empty, only catalogs with those IDs are loaded, and an ID that matches
+// no catalog is an error. A catalog ID found in two places is an error.
+func LoadAll(dirs, include []string) ([]domain.Catalog, error) {
 	var out []domain.Catalog
 	where := map[string]string{}
 	for _, dir := range dirs {
@@ -68,6 +71,9 @@ func LoadAll(dirs ...string) ([]domain.Catalog, error) {
 			if _, err := os.Stat(filepath.Join(path, "catalog.yaml")); err != nil {
 				continue
 			}
+			if len(include) > 0 && !slices.Contains(include, catalogID(path)) {
+				continue
+			}
 			c, err := Load(path)
 			if err != nil {
 				return nil, fmt.Errorf("catalog %s: %w", path, err)
@@ -79,8 +85,32 @@ func LoadAll(dirs ...string) ([]domain.Catalog, error) {
 			out = append(out, *c)
 		}
 	}
+	var missing []string
+	for _, id := range include {
+		if _, ok := where[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("catalogs.include: no catalog with id %s in %s", strings.Join(missing, ", "), strings.Join(dirs, ", "))
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// catalogID reads only a catalog's id, so a catalog that is not offered can't
+// stop the server however broken the rest of it is. A catalog.yaml that won't
+// parse at all falls back to its directory name, the id by convention, so an
+// included catalog still reports its own error.
+func catalogID(dir string) string {
+	var m struct {
+		ID string `yaml:"id"`
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "catalog.yaml"))
+	if err == nil && yaml.Unmarshal(raw, &m) == nil && m.ID != "" {
+		return m.ID
+	}
+	return filepath.Base(dir)
 }
 
 // Load reads one catalog directory.

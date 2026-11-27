@@ -83,6 +83,10 @@ platforms, resource types and bundles outside it, and `catalogs.dirs` loads cata
 from directories other than `catalogs/`; see
 [docs/CATALOG_AUTHORING.md](docs/CATALOG_AUTHORING.md).
 
+`catalogs.include: [<id>, ...]` limits a server to those catalogs; the others are not
+parsed beyond their `id`. With a single catalog the setup page skips the choice and
+offers just that platform.
+
 ## REST API
 
 All routes under `/api/v1` require the session cookie set by the OAuth flow; routes that

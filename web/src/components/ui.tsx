@@ -55,8 +55,8 @@ export function Markdown({ source }: { source: string }) {
   return <div className="prose" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-export function Steps({ current }: { current: 1 | 2 | 3 }) {
-  const items = ["Choose a platform", "Install", "Connect your cloud"];
+export function Steps({ current, first = "Choose a platform" }: { current: 1 | 2 | 3; first?: string }) {
+  const items = [first, "Install", "Connect your cloud"];
   return (
     <nav className="steps" aria-label="Setup progress">
       {items.map((label, i) => {

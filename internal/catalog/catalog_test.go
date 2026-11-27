@@ -13,7 +13,7 @@ import (
 )
 
 func TestLoadsTheShippedCatalog(t *testing.T) {
-	cats, err := catalog.LoadAll(filepath.Join("..", "..", "catalogs"))
+	cats, err := catalog.LoadAll([]string{filepath.Join("..", "..", "catalogs")}, nil)
 	require.NoError(t, err)
 	require.Len(t, cats, 1)
 
@@ -190,7 +190,7 @@ func TestLoadAllReadsEveryDirAndRejectsDuplicateIDs(t *testing.T) {
 	_, dir := sharedTree(t)
 	shipped := filepath.Join("..", "..", "catalogs")
 
-	cats, err := catalog.LoadAll(shipped, filepath.Dir(dir))
+	cats, err := catalog.LoadAll([]string{shipped, filepath.Dir(dir)}, nil)
 	require.NoError(t, err)
 	ids := make([]string, 0, len(cats))
 	for _, c := range cats {
@@ -198,6 +198,41 @@ func TestLoadAllReadsEveryDirAndRejectsDuplicateIDs(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"aws-serverless", "paas"}, ids)
 
-	_, err = catalog.LoadAll(shipped, filepath.Dir(dir), shipped)
+	_, err = catalog.LoadAll([]string{shipped, filepath.Dir(dir), shipped}, nil)
 	require.ErrorContains(t, err, `catalog "aws-serverless" is in both`)
+}
+
+func TestLoadAllLoadsOnlyIncludedCatalogs(t *testing.T) {
+	_, paas := sharedTree(t)
+	dir := filepath.Dir(paas)
+	write(t, filepath.Join(dir, "broken", "catalog.yaml"), "id: broken\nname: Broken\nbundles: [nope]\n")
+	write(t, filepath.Join(dir, "garbled", "catalog.yaml"), "id: [unclosed\n")
+
+	tests := []struct {
+		name    string
+		include []string
+		want    []string
+		wantErr string
+	}{
+		{name: "one catalog, broken neighbours untouched", include: []string{"paas"}, want: []string{"paas"}},
+		{name: "everything when empty", wantErr: "catalog " + filepath.Join(dir, "broken")},
+		{name: "an included broken catalog reports itself", include: []string{"broken"}, wantErr: `bundle "nope"`},
+		{name: "an unparseable catalog is matched by its directory", include: []string{"garbled"}, wantErr: "parse catalog.yaml"},
+		{name: "unknown ids", include: []string{"paas", "fauxroku", "fauxcel"}, wantErr: "catalogs.include: no catalog with id fauxroku, fauxcel in " + dir},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cats, err := catalog.LoadAll([]string{dir}, tt.include)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			ids := make([]string, 0, len(cats))
+			for _, c := range cats {
+				ids = append(ids, c.ID)
+			}
+			assert.Equal(t, tt.want, ids)
+		})
+	}
 }
