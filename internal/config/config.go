@@ -66,6 +66,8 @@ type Runtime struct {
 	Template     string `yaml:"template"`
 	AppComponent string `yaml:"app_component"`
 	ImageParam   string `yaml:"image_param"`
+	// Pinned applies over paas.pinned for this runtime's apps only.
+	Pinned map[string]map[string]any `yaml:"pinned"`
 }
 
 // Addon is an optional component of a template.

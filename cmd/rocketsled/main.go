@@ -261,7 +261,7 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 	for _, r := range p.Runtimes {
 		out.Runtimes = append(out.Runtimes, domain.Runtime{
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
-			AppComponent: r.AppComponent, ImageParam: r.ImageParam,
+			AppComponent: r.AppComponent, ImageParam: r.ImageParam, Pinned: r.Pinned,
 		})
 	}
 	for _, a := range p.Addons {
