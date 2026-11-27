@@ -766,9 +766,10 @@ type CreateEnvironmentInput struct {
 	Slug    string            `json:"slug"`
 	Name    string            `json:"name"`
 	Presets map[string]string `json:"presets"`
-	// Runtime and Addons apply in tenant mode.
+	// Runtime, Addons and Stage apply in tenant mode.
 	Runtime string   `json:"runtime,omitempty"`
 	Addons  []string `json:"addons,omitempty"`
+	Stage   string   `json:"stage,omitempty"`
 }
 
 // CreateEnvironment forks the base environment, applies one preset per component,
@@ -782,6 +783,9 @@ func (s *Service) CreateEnvironment(ctx context.Context, user *User, account *Ac
 	}
 	if !ValidSlug(in.Slug) {
 		return nil, Invalid("slug", "use 1-20 lowercase letters or digits")
+	}
+	if in.Stage != "" {
+		return nil, Invalid("stage", "this server has no pipeline")
 	}
 	if strings.TrimSpace(in.Name) == "" {
 		in.Name = in.Slug

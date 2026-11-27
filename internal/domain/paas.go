@@ -25,7 +25,8 @@ type PaaS struct {
 	Highlights map[string][]string
 	Limits     Limits
 	// Domains, when set, lets customers point their own hostnames at an app.
-	Domains *Domains
+	Domains  *Domains
+	Pipeline Pipeline
 }
 
 // Limits keep an open sign-up from running up the operator's bill.
@@ -69,6 +70,7 @@ type Plan struct {
 type Offer struct {
 	Runtimes []RuntimeOffer `json:"runtimes"`
 	Limits   Limits         `json:"limits"`
+	Stages   []StageSummary `json:"stages"`
 }
 
 // RuntimeOffer is a runtime with the components every app of it gets and the
@@ -81,8 +83,14 @@ type RuntimeOffer struct {
 	Components []OfferedComponent `json:"components"`
 	Addons     []OfferedComponent `json:"addons"`
 	// Domains is true when the runtime has the component custom domains land on.
-	Domains bool `json:"domains"`
+	Domains bool           `json:"domains"`
+	Stages  []OfferedStage `json:"stages"`
+	// Promote lists the components a promotion between this runtime's apps copies.
+	Promote []string `json:"promote"`
 	links   []Link
+	// presets holds every preset of every component an app may deploy, by
+	// component then name, whatever the limits offer.
+	presets map[string]map[string]map[string]any
 }
 
 // OfferedComponent is a template component with its presets.
@@ -126,7 +134,10 @@ func (s *Service) Offer(ctx context.Context) (*Offer, error) {
 	platform := s.platforms(s.shared)
 	limits := s.paas.Limits
 	limits.TTLHours = limits.TTL.Hours()
-	offer := &Offer{Runtimes: []RuntimeOffer{}, Limits: limits}
+	offer := &Offer{Runtimes: []RuntimeOffer{}, Limits: limits, Stages: []StageSummary{}}
+	for _, st := range s.paas.Pipeline.Stages {
+		offer.Stages = append(offer.Stages, StageSummary{ID: st.ID, Name: st.Name})
+	}
 	for _, rt := range s.paas.Runtimes {
 		ro, err := s.runtimeOffer(ctx, platform, rt)
 		if err != nil {
@@ -160,11 +171,18 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 	for _, pi := range tmpl.Instances {
 		instances[pi.ComponentSlug] = pi
 	}
-	ro := &RuntimeOffer{ID: rt.ID, Name: rt.Name, Summary: rt.Summary, Project: rt.Project, Components: []OfferedComponent{}, Addons: []OfferedComponent{}, links: project.Links}
+	ro := &RuntimeOffer{
+		ID: rt.ID, Name: rt.Name, Summary: rt.Summary, Project: rt.Project, Components: []OfferedComponent{}, Addons: []OfferedComponent{},
+		links: project.Links, presets: map[string]map[string]map[string]any{},
+	}
 	for _, c := range dependencyOrder(project.Components, project.Links) {
 		pi, ok := instances[c.Slug]
 		if !ok || strings.EqualFold(pi.Status, "PROVISIONED") {
 			continue
+		}
+		ro.presets[c.Slug] = map[string]map[string]any{}
+		for _, p := range pi.Presets() {
+			ro.presets[c.Slug][p.Name] = p.Params
 		}
 		_, isAddon := addons[c.Slug]
 		if isAddon && s.paas.Limits.Addons != nil && !slices.Contains(s.paas.Limits.Addons, c.Slug) {
@@ -197,6 +215,9 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 		order[a.ID] = i
 	}
 	slices.SortStableFunc(ro.Addons, func(a, b OfferedComponent) int { return order[a.Slug] - order[b.Slug] })
+	if ro.Stages, ro.Promote, err = s.stageOffer(rt, ro); err != nil {
+		return nil, err
+	}
 	return ro, nil
 }
 
@@ -251,6 +272,14 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		return nil, Invalid("runtime", "pick a runtime")
 	}
 	rt := s.runtimeConfig(in.Runtime)
+	stageDefaults := map[string]string{}
+	if in.Stage != "" {
+		i := slices.IndexFunc(ro.Stages, func(st OfferedStage) bool { return st.ID == in.Stage })
+		if i < 0 {
+			return nil, Invalid("stage", "there is no stage %q", in.Stage)
+		}
+		stageDefaults = ro.Stages[i].Presets
+	}
 	picked := append([]OfferedComponent(nil), ro.Components...)
 	addons := []string{}
 	for _, id := range in.Addons {
@@ -269,6 +298,9 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 			continue
 		}
 		name := in.Presets[c.Slug]
+		if name == "" {
+			name = stageDefaults[c.Slug]
+		}
 		if name == "" {
 			presets[c.Slug] = c.Presets[0]
 			continue
@@ -295,7 +327,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		ParentEnvironmentID:     templateID(rt),
 		ID:                      in.Slug,
 		Name:                    in.Name,
-		Description:             ownerMarker(user.Login, account.OwnerUserID, pickedPresets(picked, presets)),
+		Description:             ownerMarker(user.Login, account.OwnerUserID, in.Stage, pickedPresets(picked, presets)),
 		CopyEnvironmentDefaults: true,
 	})
 	if err != nil {
@@ -312,7 +344,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	}
 	env := &Environment{
 		ID: forked.ID, AccountID: account.ID, Slug: in.Slug, Name: in.Name, EnvironmentID: forked.ID,
-		Presets: names, Runtime: rt.ID, Addons: addons, State: EnvironmentStateDeploying,
+		Presets: names, Runtime: rt.ID, Addons: addons, Stage: in.Stage, State: EnvironmentStateDeploying,
 		CreatedBy: user.ID, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.store.CreateEnvironment(ctx, env); err != nil {
@@ -539,7 +571,10 @@ func onlyPicked(env *Environment, live *PlatformEnvironment) {
 // app survives the server losing its database.
 var ownerPattern = regexp.MustCompile(`\[owner ([^\]\s]+)\]$`)
 
-func ownerMarker(login, userID string, picks map[string]string) string {
+func ownerMarker(login, userID, stage string, picks map[string]string) string {
+	if stage != "" {
+		return fmt.Sprintf("Made in Rocketsled for %s [stage %s] %s [owner %s]", login, stage, picksMarker(picks), userID)
+	}
 	return fmt.Sprintf("Made in Rocketsled for %s %s [owner %s]", login, picksMarker(picks), userID)
 }
 
@@ -734,7 +769,7 @@ func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 		rt := runtimeOf[id]
 		env := &Environment{
 			ID: id, AccountID: account.ID, Slug: strings.TrimPrefix(id, rt.Project+"-"), Name: summary.Name, EnvironmentID: id,
-			Presets: map[string]string{}, Runtime: rt.ID, State: EnvironmentStateDeploying,
+			Presets: map[string]string{}, Runtime: rt.ID, Stage: stageOf(summary.Description), State: EnvironmentStateDeploying,
 			CreatedBy: account.OwnerUserID, CreatedAt: summary.CreatedAt, UpdatedAt: s.now(),
 		}
 		tmpl := map[string]bool{}

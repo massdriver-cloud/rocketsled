@@ -21,6 +21,8 @@ import (
 type tenantWorld struct {
 	mu           sync.Mutex
 	descriptions map[string]string
+	version      map[string]string
+	deployed     map[string]string
 	created      map[string]time.Time
 	status       map[string]string
 	params       map[string]map[string]any
@@ -61,7 +63,7 @@ func (w *tenantWorld) environment(id string) *domain.PlatformEnvironment {
 			}
 		}
 		env.Instances = append(env.Instances, domain.PlatformInstance{
-			ID: iid, ComponentSlug: slug, ComponentName: slug, BundleName: slug, Status: status,
+			ID: iid, ComponentSlug: slug, ComponentName: slug, BundleName: slug, Status: status, Version: w.version[iid], DeployedVersion: w.deployed[iid],
 			Params: maps.Clone(w.params[iid]), ParamsSchema: presetSchema("Development", "Production"),
 		})
 	}
@@ -98,7 +100,7 @@ func newTenantHarness(t *testing.T, paas *domain.PaaS) *tenantHarness {
 	if paas.Addons == nil {
 		paas.Addons = []domain.Addon{{ID: "db", Title: "Postgres"}, {ID: "cache", Title: "Key-Value Store"}}
 	}
-	w := &tenantWorld{descriptions: map[string]string{}, created: map[string]time.Time{}, status: map[string]string{}, params: map[string]map[string]any{}}
+	w := &tenantWorld{descriptions: map[string]string{}, version: map[string]string{}, deployed: map[string]string{}, created: map[string]time.Time{}, status: map[string]string{}, params: map[string]map[string]any{}}
 	h := &tenantHarness{platform: &mocks.PlatformMock{}, store: memory.New(), world: w, now: fixedTime}
 	h.user = &domain.User{ID: "password:ada", Provider: domain.ProviderPassword, Login: "ada", Name: "ada"}
 	p := h.platform
@@ -131,6 +133,15 @@ func newTenantHarness(t *testing.T, paas *domain.PaaS) *tenantHarness {
 	}
 	p.DeployInstanceFunc = func(_ context.Context, id string, params map[string]any, _ string) error {
 		w.set(id, "PROVISIONED", params)
+		w.mu.Lock()
+		w.deployed[id] = w.version[id]
+		w.mu.Unlock()
+		return nil
+	}
+	p.SetInstanceVersionFunc = func(_ context.Context, id, version string) error {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		w.version[id] = version
 		return nil
 	}
 	started := map[string]string{}

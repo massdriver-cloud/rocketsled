@@ -31,6 +31,8 @@ type Platform interface {
 	StartDeployment(ctx context.Context, instanceID string, params map[string]any, message string) (string, error)
 	// DeploymentStatus reports a deployment's status: PENDING, RUNNING, COMPLETED, FAILED and so on.
 	DeploymentStatus(ctx context.Context, deploymentID string) (string, error)
+	// SetInstanceVersion pins the bundle version an instance deploys next.
+	SetInstanceVersion(ctx context.Context, instanceID, version string) error
 	// DecommissionInstance tears down one instance's infrastructure.
 	DecommissionInstance(ctx context.Context, instanceID string, params map[string]any, message string) error
 	// SetEnvironmentDescription replaces an environment's description.

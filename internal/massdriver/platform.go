@@ -543,6 +543,25 @@ func (c *Client) DeploymentStatus(ctx context.Context, deploymentID string) (str
 	return out.Deployment.Status, nil
 }
 
+const updateInstanceMutation = `
+mutation RocketsledUpdateInstance($organizationId: ID!, $id: ID!, $input: UpdateInstanceInput!) {
+  updateInstance(organizationId: $organizationId, id: $id, input: $input) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`
+
+func (c *Client) SetInstanceVersion(ctx context.Context, instanceID, version string) error {
+	var out struct {
+		UpdateInstance payload[struct{ ID string }] `json:"updateInstance"`
+	}
+	if err := c.do(ctx, updateInstanceMutation, map[string]any{"id": instanceID, "input": map[string]any{"version": version}}, &out); err != nil {
+		return err
+	}
+	return out.UpdateInstance.check("updateInstance")
+}
+
 const updateEnvironmentMutation = `
 mutation RocketsledUpdateEnvironment($organizationId: ID!, $id: ID!, $input: UpdateEnvironmentInput!) {
   updateEnvironment(organizationId: $organizationId, id: $id, input: $input) {

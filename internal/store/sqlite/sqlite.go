@@ -316,12 +316,12 @@ func (s *Store) GetBootstrapState(ctx context.Context, accountID string) ([]byte
 
 // --- environments ------------------------------------------------------------
 
-const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image, domains`
+const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image, domains, stage`
 
 func scanEnvironment(row interface{ Scan(...any) error }) (*domain.Environment, error) {
 	var e domain.Environment
 	var presets, created, updated, addons, domains string
-	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image, &domains); err != nil {
+	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image, &domains, &e.Stage); err != nil {
 		return nil, err
 	}
 	if domains != "" {
@@ -358,8 +358,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains, e.Stage)
 	if isUnique(err) {
 		return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
 	}
@@ -404,8 +404,8 @@ func (s *Store) UpdateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ?, image = ?, domains = ? WHERE id = ?`,
-		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains, e.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ?, image = ?, domains = ?, stage = ? WHERE id = ?`,
+		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains, e.Stage, e.ID)
 	if err != nil {
 		return err
 	}
