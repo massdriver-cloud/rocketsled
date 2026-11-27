@@ -163,19 +163,30 @@ func (s *Service) Release(ctx context.Context, user *User, account *Account, ref
 	if d := strings.TrimSpace(in.Description); d != "" {
 		summary += ": " + d
 	}
-	env.Image = image
+	released := *env
+	released.Image = image
 	var params map[string]any
 	if s.tenant() {
-		params = s.componentParams(env, s.runtimeConfig(env.Runtime), target.Component, app.Params)
+		params = s.componentParams(&released, s.runtimeConfig(env.Runtime), target.Component, app.Params)
 	} else {
 		params = MergeParams(app.Params, map[string]any{target.Param: image})
 	}
-	instanceID := app.ID
+	instanceID, envRecordID, envID := app.ID, env.ID, env.EnvironmentID
 	run, err := s.startRun(ctx, user, env, TriggerRelease, summary, func(bg context.Context) error {
 		if err := platform.DeployInstance(bg, instanceID, params, summary+" by "+user.Login); err != nil {
 			return fmt.Errorf("release %s: %w", target.Component, err)
 		}
-		return nil
+		// The image counts as released only once it runs, so a bad one is
+		// never carried into the next deploy.
+		if err := s.waitProvisioned(bg, platform, envID, []string{target.Component}); err != nil {
+			return err
+		}
+		stored, err := s.store.GetEnvironment(bg, envRecordID)
+		if err != nil {
+			return err
+		}
+		stored.Image = image
+		return s.store.UpdateEnvironment(bg, stored)
 	})
 	if err != nil {
 		return nil, err
@@ -202,20 +213,16 @@ func (s *Service) ListReleases(ctx context.Context, account *Account, ref string
 // environmentByRef finds an owned environment by ID or, for a build that only
 // knows the name it deploys to, by slug.
 func (s *Service) environmentByRef(ctx context.Context, account *Account, ref string) (*Environment, error) {
-	env, err := s.ownedEnvironment(ctx, account, ref)
-	if err == nil || !errors.Is(err, ErrNotFound) {
-		return env, err
-	}
-	envs, listErr := s.store.ListEnvironments(ctx, account.ID)
-	if listErr != nil {
-		return nil, listErr
+	envs, err := s.store.ListEnvironments(ctx, account.ID)
+	if err != nil {
+		return nil, err
 	}
 	for i := range envs {
 		if envs[i].Slug == ref {
 			return &envs[i], nil
 		}
 	}
-	return nil, err
+	return s.ownedEnvironment(ctx, account, ref)
 }
 
 // releaseTarget is the runtime's app component in tenant mode, the catalog's otherwise.

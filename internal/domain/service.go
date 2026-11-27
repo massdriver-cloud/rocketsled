@@ -1107,17 +1107,21 @@ func (s *Service) DeployEnvironment(ctx context.Context, user *User, account *Ac
 }
 
 // startRun records the next numbered run of env, marks env deploying and does
-// work in the background, recording how it ended.
+// work in the background, recording how it ended. Only one change at a time
+// runs per environment; releases are the exception, since Massdriver queues
+// deployments of one instance and a build shouldn't fail because another is
+// still going.
 func (s *Service) startRun(ctx context.Context, user *User, env *Environment, trigger RunTrigger, summary string, work func(context.Context) error) (*Run, error) {
 	if env.State == EnvironmentStateDecommissioning {
 		return nil, fmt.Errorf("%w: the environment is being destroyed", ErrConflict)
 	}
-	if !s.claim(env.ID) {
+	exclusive := trigger != TriggerRelease
+	if exclusive && !s.claim(env.ID) {
 		return nil, fmt.Errorf("%w: %s is still deploying; try again when it finishes", ErrConflict, env.Name)
 	}
 	started := false
 	defer func() {
-		if !started {
+		if exclusive && !started {
 			s.release(env.ID)
 		}
 	}()
@@ -1141,7 +1145,9 @@ func (s *Service) startRun(ctx context.Context, user *User, env *Environment, tr
 	envRecordID, runCopy := env.ID, *run
 	started = true
 	s.runAsync(func() {
-		defer s.release(envRecordID)
+		if exclusive {
+			defer s.release(envRecordID)
+		}
 		bg := context.Background()
 		s.finishRun(bg, &runCopy, envRecordID, work(bg))
 	})

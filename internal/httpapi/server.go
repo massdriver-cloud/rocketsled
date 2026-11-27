@@ -179,14 +179,9 @@ func (s *Server) account(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) releaser(next http.HandlerFunc) http.HandlerFunc {
 	session := s.account(next)
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
+		scheme, secret, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		if !strings.EqualFold(scheme, "Bearer") {
 			session(w, r)
-			return
-		}
-		secret, ok := strings.CutPrefix(auth, "Bearer ")
-		if !ok {
-			writeError(w, http.StatusUnauthorized, "use Authorization: Bearer <deploy token>", "")
 			return
 		}
 		a, u, err := s.svc.Authenticate(r.Context(), strings.TrimSpace(secret))

@@ -4,7 +4,7 @@ import type { Environment, Release } from "../types";
 import { Notice } from "./ui";
 
 function workflowStep(env: Environment) {
-  return `- name: Release to ${env.name}
+  return `- name: ${JSON.stringify(`Release to ${env.name}`)}
   env:
     ROCKETSLED_URL: ${window.location.origin}
     ROCKETSLED_TOKEN: \${{ secrets.ROCKETSLED_TOKEN }}
@@ -58,7 +58,7 @@ export function Releases({ env, component, onRelease }: { env: Environment; comp
             ) : (
               <>
                 Nothing released to <b>{component}</b> yet. Create a deploy token, add it to your repository as <span className="mono">ROCKETSLED_TOKEN</span>,
-                and add this step after the one that pushes <span className="mono">$IMAGE</span>:
+                and add this step after the one that pushes your image, with <span className="mono">IMAGE</span> set to its reference:
               </>
             )}
           </p>

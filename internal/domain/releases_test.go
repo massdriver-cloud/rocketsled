@@ -135,6 +135,9 @@ func TestReleaseInInstallMode(t *testing.T) {
 	a = h.ready(t)
 	env, err := h.svc.CreateEnvironment(ctx, h.user, a, domain.CreateEnvironmentInput{Slug: "dev"})
 	require.NoError(t, err)
+	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.PlatformEnvironment, error) {
+		return liveEnv(id, "PROVISIONED"), nil
+	}
 	release, err := h.svc.Release(ctx, h.user, a, "dev", domain.ReleaseInput{Image: "123.dkr.ecr.us-east-1.amazonaws.com/app:v1"})
 	require.NoError(t, err)
 	assert.Equal(t, env.ID, release.EnvironmentID)
@@ -168,4 +171,27 @@ func TestAdoptedAppsKeepTheirReleasedImage(t *testing.T) {
 		images[e.Slug] = e.Image
 	}
 	assert.Equal(t, map[string]string{"hello": "registry/hello:abc", "fresh": ""}, images, "the pinned welcome image is not a release")
+}
+
+func TestAFailedReleaseIsNotCarriedIntoLaterDeploys(t *testing.T) {
+	h := newTenantHarness(t, &domain.PaaS{Runtimes: []domain.Runtime{{
+		ID: "ruby", Name: "Ruby", Project: "ruby", Template: "template", AppComponent: "web", ImageParam: "image_uri",
+	}}})
+	ctx := context.Background()
+	app := h.app(t, "hello")
+	_, err := h.svc.Release(ctx, h.user, h.account, app.ID, domain.ReleaseInput{Image: "registry/hello:good"})
+	require.NoError(t, err)
+
+	h.platform.DeployInstanceFunc = func(_ context.Context, id string, params map[string]any, _ string) error {
+		h.world.set(id, "FAILED", params)
+		return nil
+	}
+	_, err = h.svc.Release(ctx, h.user, h.account, app.ID, domain.ReleaseInput{Image: "registry/hello:typo"})
+	require.NoError(t, err)
+	stored, err := h.store.GetEnvironment(ctx, app.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "registry/hello:good", stored.Image, "the image that failed to run is not recorded as running")
+	runs, err := h.store.ListRuns(ctx, app.ID, 1)
+	require.NoError(t, err)
+	assert.Equal(t, domain.RunStatusFailed, runs[0].Status)
 }

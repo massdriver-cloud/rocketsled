@@ -244,7 +244,9 @@ func TestDeployTokensReleaseOverBearerAuth(t *testing.T) {
 	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v2"}, false, "Bearer rs_wrong")
 	assert.Equal(t, http.StatusUnauthorized, r.StatusCode)
 	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v2"}, false, "Basic abc")
-	assert.Equal(t, http.StatusUnauthorized, r.StatusCode)
+	assert.Equal(t, http.StatusUnauthorized, r.StatusCode, "another scheme falls back to the session, and there is none")
+	r = e.doWith(t, http.MethodGet, "/api/v1/environments/production/releases", nil, false, "bearer "+created.Token)
+	assert.Equal(t, http.StatusOK, r.StatusCode, "the scheme is case-insensitive")
 
 	r = e.do(t, http.MethodDelete, "/api/v1/account/tokens/"+created.ID, nil, true)
 	assert.Equal(t, http.StatusNoContent, r.StatusCode)
