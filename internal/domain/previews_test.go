@@ -125,3 +125,16 @@ func TestReapPreviewsRemovesOnlyQuietPreviews(t *testing.T) {
 	h.svc.ReapPreviews(ctx)
 	assert.Len(t, h.platform.DecommissionEnvironmentCalls(), 1, "a preview is not decommissioned twice within the hour")
 }
+
+func TestAPreviewTheStoreForgotIsReleasedTo(t *testing.T) {
+	h := newTenantHarness(t, previewPaaS())
+	ctx := context.Background()
+	_, err := h.svc.Preview(ctx, h.user, h.account, "pr5", domain.PreviewInput{Image: "img:1"})
+	require.NoError(t, err)
+	require.NoError(t, h.store.DeleteEnvironment(ctx, "ruby-pr5"))
+	forks := len(h.platform.ForkEnvironmentCalls())
+
+	_, err = h.svc.Preview(ctx, h.user, h.account, "pr5", domain.PreviewInput{Image: "img:2"})
+	require.NoError(t, err, "the next push adopts the preview from Massdriver and releases to it")
+	assert.Len(t, h.platform.ForkEnvironmentCalls(), forks)
+}

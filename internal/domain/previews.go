@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -27,18 +28,15 @@ func (s *Service) Preview(ctx context.Context, user *User, account *Account, nam
 	if !ValidSlug(name) || name == "template" {
 		return nil, Invalid("name", "use 1-20 lowercase letters or digits, like pr123")
 	}
-	envs, err := s.store.ListEnvironments(ctx, account.ID)
-	if err != nil {
+	existing, err := s.environmentByRef(ctx, account, name)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	for i := range envs {
-		if envs[i].Slug != name {
-			continue
-		}
-		if !envs[i].Preview {
+	if existing != nil {
+		if !existing.Preview {
 			return nil, fmt.Errorf("%w: %s is not a preview", ErrConflict, name)
 		}
-		return s.Release(ctx, user, account, envs[i].ID, ReleaseInput{Image: in.Image, Description: in.Description})
+		return s.Release(ctx, user, account, existing.ID, ReleaseInput{Image: in.Image, Description: in.Description})
 	}
 
 	image := strings.TrimSpace(in.Image)
@@ -154,7 +152,12 @@ func (s *Service) ReapPreviews(ctx context.Context) {
 			continue
 		}
 		last := e.CreatedAt
-		if releases, err := s.store.ListReleases(ctx, e.ID, 1); err == nil && len(releases) > 0 && releases[0].CreatedAt.After(last) {
+		releases, err := s.store.ListReleases(ctx, e.ID, 1)
+		if err != nil {
+			// Without the release history a busy preview looks quiet; wait for the next tick.
+			continue
+		}
+		if len(releases) > 0 && releases[0].CreatedAt.After(last) {
 			last = releases[0].CreatedAt
 		}
 		if s.now().Sub(last) < s.paas.Previews.TTL {
