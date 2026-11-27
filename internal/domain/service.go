@@ -209,8 +209,8 @@ func (s *Service) SignIn(ctx context.Context, provider Provider, code, redirectU
 // GetUser loads a user by ID.
 func (s *Service) GetUser(ctx context.Context, id string) (*User, error) {
 	u, err := s.store.GetUser(ctx, id)
-	if err != nil && s.open && errors.Is(err, ErrNotFound) {
-		if rebuilt, ok := openUser(id); ok {
+	if err != nil && (s.open || s.password != "") && errors.Is(err, ErrNotFound) {
+		if rebuilt, ok := s.sessionUser(id); ok {
 			rebuilt.CreatedAt = s.now()
 			if err := s.store.UpsertUser(ctx, rebuilt); err != nil {
 				return nil, err

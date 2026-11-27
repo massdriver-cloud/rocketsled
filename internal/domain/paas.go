@@ -807,6 +807,22 @@ func (s *Service) SignUp(ctx context.Context, name, inviteCode string) (*User, e
 	return user, nil
 }
 
+// sessionUser rebuilds a user from their signed session's ID when the
+// database has forgotten them, for the providers whose IDs carry the name.
+func (s *Service) sessionUser(id string) (*User, bool) {
+	if s.open {
+		if u, ok := openUser(id); ok {
+			return u, true
+		}
+	}
+	if s.password != "" {
+		if name, ok := strings.CutPrefix(id, string(ProviderPassword)+":"); ok && loginPattern.MatchString(name) {
+			return &User{ID: id, Provider: ProviderPassword, ProviderUserID: name, Login: name, Name: name}, true
+		}
+	}
+	return nil, false
+}
+
 // openUser rebuilds a signed-up user from their session's ID.
 func openUser(id string) (*User, bool) {
 	parts := strings.SplitN(id, ":", 3)
