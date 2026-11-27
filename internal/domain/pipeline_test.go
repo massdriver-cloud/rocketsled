@@ -138,7 +138,7 @@ func TestPromoteMovesTheBundleVersion(t *testing.T) {
 	h.copyMergesIntoTheWorld()
 	stg := h.stagedApp(t, "stg", "staging")
 	prd := h.stagedApp(t, "prd", "production")
-	h.world.version["ruby-stg-web"], h.world.deployed["ruby-stg-web"] = "1.3.0", "1.3.0"
+	h.world.version["ruby-stg-web"], h.world.deployed["ruby-stg-web"] = "1.4.0", "1.3.0"
 	h.world.version["ruby-prd-web"], h.world.deployed["ruby-prd-web"] = "1.2.0", "1.2.0"
 	h.world.set("ruby-prd-web", "PROVISIONED", nil)
 	before := len(h.platform.DeployInstanceCalls())
@@ -148,7 +148,7 @@ func TestPromoteMovesTheBundleVersion(t *testing.T) {
 	pins := h.platform.SetInstanceVersionCalls()
 	require.Len(t, pins, 1)
 	assert.Equal(t, "ruby-prd-web", pins[0].InstanceID)
-	assert.Equal(t, "1.3.0", pins[0].Version)
+	assert.Equal(t, "1.3.0", pins[0].Version, "the version staging deployed, not what its channel resolves to now")
 	assert.Equal(t, []string{"ruby-prd-web"}, deployedIDs(h)[before:], "a new version deploys even when the params match")
 	assert.Equal(t, "1.3.0", h.world.deployed["ruby-prd-web"])
 }

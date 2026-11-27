@@ -155,8 +155,8 @@ func (s *Service) Promote(ctx context.Context, user *User, account *Account, id 
 	}
 	platform := s.platforms(s.shared)
 	sourceID, targetID, targetRecordID, links := source.EnvironmentID, target.EnvironmentID, target.ID, ro.links
-	promotesImage := slices.Contains(components, rt.AppComponent) && source.Image != ""
-	image := source.Image
+	promotesImage := slices.Contains(components, rt.AppComponent)
+	image, targetDomains := source.Image, target.Domains
 	message := "Promoted from " + source.Name
 	return s.startRun(ctx, user, target, TriggerPromote, message, func(bg context.Context) error {
 		from, err := platform.GetEnvironment(bg, sourceID)
@@ -168,16 +168,28 @@ func (s *Service) Promote(ctx context.Context, user *User, account *Account, id 
 			return fmt.Errorf("load %s: %w", targetID, err)
 		}
 		for _, slug := range components {
+			src, _ := instanceOf(from, slug)
+			dst, _ := instanceOf(before, slug)
+			if d := s.paas.Domains; d != nil && slug == d.Component && targetDomains == nil {
+				// The source's hostnames are the source's; a target without
+				// domains of its own keeps its pinned value or none.
+				if _, pinned := overrides[slug][d.Param]; !pinned {
+					overrides[slug][d.Param] = (&DomainSetting{List: paramIsList(dst.ParamsSchema, d.Param)}).value()
+				}
+			}
 			if err := platform.CopyInstance(bg, sourceID+"-"+slug, targetID+"-"+slug, overrides[slug]); err != nil {
 				return fmt.Errorf("copy %s: %w", slug, err)
 			}
-			// copyInstance moves params only; the build that passed the earlier
-			// stage is pinned by its exact version.
-			src, _ := instanceOf(from, slug)
-			dst, _ := instanceOf(before, slug)
-			if src.Version != "" && src.Version != dst.Version {
-				if err := platform.SetInstanceVersion(bg, targetID+"-"+slug, src.Version); err != nil {
-					return fmt.Errorf("pin %s to %s: %w", slug, src.Version, err)
+			// copyInstance moves params only. The build that ran in the earlier
+			// stage is pinned by the version it deployed, not whatever its
+			// release channel resolves to now.
+			version := src.DeployedVersion
+			if version == "" {
+				version = src.Version
+			}
+			if version != "" && version != dst.Version {
+				if err := platform.SetInstanceVersion(bg, targetID+"-"+slug, version); err != nil {
+					return fmt.Errorf("pin %s to %s: %w", slug, version, err)
 				}
 			}
 		}
