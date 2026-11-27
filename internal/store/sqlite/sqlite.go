@@ -316,13 +316,19 @@ func (s *Store) GetBootstrapState(ctx context.Context, accountID string) ([]byte
 
 // --- environments ------------------------------------------------------------
 
-const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image`
+const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image, domains`
 
 func scanEnvironment(row interface{ Scan(...any) error }) (*domain.Environment, error) {
 	var e domain.Environment
-	var presets, created, updated, addons string
-	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image); err != nil {
+	var presets, created, updated, addons, domains string
+	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image, &domains); err != nil {
 		return nil, err
+	}
+	if domains != "" {
+		e.Domains = &domain.DomainSetting{}
+		if err := json.Unmarshal([]byte(domains), e.Domains); err != nil {
+			return nil, fmt.Errorf("decode domains: %w", err)
+		}
 	}
 	if err := json.Unmarshal([]byte(addons), &e.Addons); err != nil {
 		return nil, fmt.Errorf("decode addons: %w", err)
@@ -348,8 +354,12 @@ func (s *Store) CreateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image)
+	domains, err := encodeDomains(e.Domains)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains)
 	if isUnique(err) {
 		return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
 	}
@@ -390,8 +400,12 @@ func (s *Store) UpdateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ?, image = ? WHERE id = ?`,
-		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, e.ID)
+	domains, err := encodeDomains(e.Domains)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ?, image = ?, domains = ? WHERE id = ?`,
+		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, domains, e.ID)
 	if err != nil {
 		return err
 	}
@@ -399,6 +413,14 @@ func (s *Store) UpdateEnvironment(ctx context.Context, e *domain.Environment) er
 		return fmt.Errorf("%w: environment %s", domain.ErrNotFound, e.ID)
 	}
 	return nil
+}
+
+func encodeDomains(d *domain.DomainSetting) (string, error) {
+	if d == nil {
+		return "", nil
+	}
+	b, err := json.Marshal(d)
+	return string(b), err
 }
 
 func (s *Store) DeleteEnvironment(ctx context.Context, id string) error {

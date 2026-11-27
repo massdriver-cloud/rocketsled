@@ -51,6 +51,10 @@ no cloud account. With `massdriver.account_mode: tenant`:
 - `paas.highlights` lists, per resource type, the payload fields the app page shows
   and their order (`website: [url]`). Other types show their first five fields in
   schema order. Values starting with `https://` are links.
+- `paas.domains` (`component`, `param`, `target_field`) lets customers point their
+  own hostnames at an app. They land on that component's param, which keeps them
+  over a pinned value, and the app page shows the CNAME to create, pointing at
+  `target_field` of the component's resource.
 - `paas.limits` caps apps per person and in total, restricts presets and add-ons,
   and removes apps after a `ttl`.
 - `auth.providers.open: {}` lets anyone sign up with a name. An `invite_code` gates it.
@@ -119,6 +123,7 @@ deploy token as a bearer token, which is good for nothing else.
 | GET, POST | `/api/v1/environments/{id}/releases` | Releases, newest first; release an image (`{image, description}`), returns 202. `{id}` may be the slug. Accepts `Authorization: Bearer <deploy token>` |
 | POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
 | DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
+| GET, PUT | `/api/v1/environments/{id}/domains` | Tenant mode: custom domains with the CNAME each needs; replace them (`{domains}`), returns 202 |
 
 Errors are `{"error": "...", "field": "..."}` with 422 for validation, 404, 409, and 502
 when Massdriver rejected a call.

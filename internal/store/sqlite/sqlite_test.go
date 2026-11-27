@@ -78,6 +78,7 @@ func TestEnvironmentsAndRuns(t *testing.T) {
 
 	e.Presets["db"] = "Development"
 	e.Runtime, e.Addons = "ruby", []string{"db"}
+	e.Domains = &domain.DomainSetting{Hosts: []string{"www.example.com"}, List: true}
 	require.NoError(t, s.UpdateEnvironment(ctx, e))
 	got, err := s.GetEnvironment(ctx, "env1")
 	require.NoError(t, err)

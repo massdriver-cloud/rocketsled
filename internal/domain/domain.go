@@ -152,7 +152,9 @@ type Environment struct {
 	Runtime string   `json:"runtime,omitempty"`
 	Addons  []string `json:"addons,omitempty"`
 	// Image is the last image released to the app component; it wins over pinned params.
-	Image     string           `json:"image,omitempty"`
+	Image string `json:"image,omitempty"`
+	// Domains are the hostnames the customer pointed at the app; nil until they set any.
+	Domains   *DomainSetting   `json:"-"`
 	State     EnvironmentState `json:"state"`
 	CreatedBy string           `json:"createdBy"`
 	CreatedAt time.Time        `json:"createdAt"`
@@ -168,6 +170,8 @@ const (
 	// TriggerAddon adds or removes an add-on; the run's message says which.
 	TriggerAddon   RunTrigger = "addon"
 	TriggerRelease RunTrigger = "release"
+	// TriggerDomains changes an app's custom domains.
+	TriggerDomains RunTrigger = "domains"
 )
 
 // RunStatus is Rocketsled's record of a deploy request.

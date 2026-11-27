@@ -53,9 +53,8 @@ func (s *Service) AddAddon(ctx context.Context, user *User, account *Account, id
 	description := withPicks(live.Description, env.Presets)
 
 	rt := s.runtimeConfig(env.Runtime)
-	vars := appVars(env, rt)
 	params := s.consumerParams(live, env, ro.links, addon.Slug, rt)
-	params[addon.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), s.pinnedFor(rt, addon.Slug, vars))
+	params[addon.Slug] = s.componentParams(env, rt, addon.Slug, MergeParams(map[string]any{}, preset.Params))
 	links := ro.links
 	return s.startRun(ctx, user, env, TriggerAddon, "Added "+addon.Name, func(bg context.Context) error {
 		if err := platform.SetEnvironmentDescription(bg, env.EnvironmentID, description); err != nil {
@@ -165,10 +164,11 @@ func (s *Service) consumerParams(live *PlatformEnvironment, env *Environment, li
 	return params
 }
 
-// componentParams are base with pinned params over it, and the image last
-// released to the app component over those.
+// componentParams are base with pinned params and the customer's domains over
+// it, and the image last released to the app component over those. Every
+// deploy of a tenant app builds its params here.
 func (s *Service) componentParams(env *Environment, rt Runtime, slug string, base map[string]any) map[string]any {
-	out := MergeParams(base, s.pinnedFor(rt, slug, appVars(env, rt)))
+	out := MergeParams(base, s.fixedParams(rt, env, slug, appVars(env, rt)))
 	if env.Image != "" && slug == rt.AppComponent && rt.ImageParam != "" {
 		out[rt.ImageParam] = env.Image
 	}
@@ -177,6 +177,17 @@ func (s *Service) componentParams(env *Environment, rt Runtime, slug string, bas
 
 func (s *Service) pinnedFor(rt Runtime, slug string, vars map[string]string) map[string]any {
 	return MergeParams(renderPinned(s.paas.Pinned[slug], vars), renderPinned(rt.Pinned[slug], vars))
+}
+
+// fixedParams are the params every deploy of slug applies over presets and
+// current values: the operator's pinned params, then the customer's domains,
+// which must outlive a pinned default for the same param.
+func (s *Service) fixedParams(rt Runtime, env *Environment, slug string, vars map[string]string) map[string]any {
+	out := s.pinnedFor(rt, slug, vars)
+	if d := s.paas.Domains; d != nil && env != nil && env.Domains != nil && slug == d.Component {
+		out[d.Param] = env.Domains.value()
+	}
+	return out
 }
 
 func appVars(env *Environment, rt Runtime) map[string]string {

@@ -1,5 +1,6 @@
 import type {
   DeployToken,
+  DomainsView,
   Release,
   Meta,
   Offer,
@@ -78,6 +79,9 @@ export const api = {
     request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/addons`, { method: "POST", body: JSON.stringify({ component, preset }) }),
   removeAddon: (id: string, component: string) =>
     request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/addons/${encodeURIComponent(component)}`, { method: "DELETE" }),
+  domains: (id: string) => request<DomainsView>(`/api/v1/environments/${encodeURIComponent(id)}/domains`),
+  setDomains: (id: string, domains: string[]) =>
+    request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/domains`, { method: "PUT", body: JSON.stringify({ domains }) }),
 };
 
 export function loginUrl(provider: string, next = "/") {

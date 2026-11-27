@@ -136,6 +136,21 @@ func TestAuthenticationAndSignupGates(t *testing.T) {
 	assert.Contains(t, r.Header.Get("Location"), "http://sled.test/auth/dev/callback?code=dev&state=")
 }
 
+func TestDomainsRoutes(t *testing.T) {
+	e := newEnv(t)
+	r := e.do(t, http.MethodPost, "/api/v1/account", map[string]any{"name": "Cory"}, true)
+	require.Equal(t, http.StatusCreated, r.StatusCode, string(r.Body))
+
+	r = e.do(t, http.MethodGet, "/api/v1/environments/x/domains", nil, true)
+	assert.Equal(t, http.StatusNotFound, r.StatusCode, "domains are a tenant-mode offer")
+	r = e.do(t, http.MethodPut, "/api/v1/environments/x/domains", map[string]any{"domains": []string{"www.example.com"}}, true)
+	assert.Equal(t, http.StatusNotFound, r.StatusCode)
+	r = e.do(t, http.MethodPut, "/api/v1/environments/x/domains", map[string]any{"hosts": []string{"www.example.com"}}, true)
+	assert.Equal(t, http.StatusUnprocessableEntity, r.StatusCode)
+	r = e.do(t, http.MethodPut, "/api/v1/environments/x/domains", nil, false)
+	assert.Equal(t, http.StatusUnauthorized, r.StatusCode)
+}
+
 func TestOnboardingFlowOverHTTP(t *testing.T) {
 	e := newEnv(t)
 

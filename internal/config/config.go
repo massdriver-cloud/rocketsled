@@ -43,6 +43,15 @@ type PaaS struct {
 	Plans      map[string]map[string]Plan `yaml:"plans"`
 	Highlights map[string][]string        `yaml:"highlights"`
 	Limits     Limits                     `yaml:"limits"`
+	Domains    *Domains                   `yaml:"domains"`
+}
+
+// Domains names the component customers' own hostnames land on: the param that
+// holds them and the resource field their CNAME points at.
+type Domains struct {
+	Component   string `yaml:"component"`
+	Param       string `yaml:"param"`
+	TargetField string `yaml:"target_field"`
 }
 
 // Limits keep an open sign-up from running up the operator's bill.
@@ -347,6 +356,9 @@ func (p *PaaS) validate() []error {
 			errs = append(errs, fmt.Errorf("paas.runtimes: %q is listed twice", r.ID))
 		}
 		seen[r.ID] = true
+	}
+	if d := p.Domains; d != nil && (d.Component == "" || d.Param == "" || d.TargetField == "") {
+		errs = append(errs, errors.New("paas.domains needs component, param and target_field"))
 	}
 	return errs
 }

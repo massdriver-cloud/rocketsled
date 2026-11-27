@@ -24,6 +24,8 @@ type PaaS struct {
 	Plans      map[string]map[string]Plan
 	Highlights map[string][]string
 	Limits     Limits
+	// Domains, when set, lets customers point their own hostnames at an app.
+	Domains *Domains
 }
 
 // Limits keep an open sign-up from running up the operator's bill.
@@ -78,7 +80,9 @@ type RuntimeOffer struct {
 	Project    string             `json:"project"`
 	Components []OfferedComponent `json:"components"`
 	Addons     []OfferedComponent `json:"addons"`
-	links      []Link
+	// Domains is true when the runtime has the component custom domains land on.
+	Domains bool `json:"domains"`
+	links   []Link
 }
 
 // OfferedComponent is a template component with its presets.
@@ -180,6 +184,12 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 			continue
 		}
 		ro.Components = append(ro.Components, oc)
+		if d := s.paas.Domains; d != nil && d.Component == c.Slug {
+			ro.Domains = true
+		}
+	}
+	if d := s.paas.Domains; d != nil && !ro.Domains {
+		s.log.Warn("custom domains are off for a runtime whose template has no such component", "runtime", rt.ID, "component", d.Component)
 	}
 	// Add-ons read in the order the config lists them.
 	order := make(map[string]int, len(s.paas.Addons))
@@ -313,10 +323,9 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		return nil, err
 	}
 
-	vars := appVars(env, rt)
 	params := map[string]map[string]any{}
 	for _, c := range picked {
-		params[c.Slug] = MergeParams(MergeParams(map[string]any{}, presets[c.Slug].Params), s.pinnedFor(rt, c.Slug, vars))
+		params[c.Slug] = s.componentParams(env, rt, c.Slug, MergeParams(map[string]any{}, presets[c.Slug].Params))
 	}
 	links, envRecordID, runCopy := ro.links, env.ID, *run
 	s.claim(envRecordID)
@@ -600,7 +609,12 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 		if len(waiting) == 0 {
 			continue
 		}
-		vars := map[string]string{"environment_id": e.ID, "app": strings.TrimPrefix(e.ID, rt.Project+"-"), "runtime": rt.ID}
+		// The stored app carries what only it knows, a released image or
+		// domains; one adopted from Massdriver is rebuilt from its description.
+		env, err := s.store.GetEnvironment(ctx, e.ID)
+		if err != nil {
+			env = &Environment{ID: e.ID, EnvironmentID: e.ID, Slug: strings.TrimPrefix(e.ID, rt.Project+"-"), Runtime: rt.ID}
+		}
 		params := map[string]map[string]any{}
 		for _, c := range append(append([]OfferedComponent{}, ro.Components...), ro.Addons...) {
 			if !waiting[c.Slug] {
@@ -612,7 +626,7 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 					preset = p
 				}
 			}
-			params[c.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), s.pinnedFor(rt, c.Slug, vars))
+			params[c.Slug] = s.componentParams(env, rt, c.Slug, MergeParams(map[string]any{}, preset.Params))
 		}
 		envID, links := e.ID, ro.links
 		if !s.claim(envID) {
@@ -754,6 +768,7 @@ func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 			}
 		}
 		env.Image = releasedImage(pe, rt, s.pinnedFor(rt, rt.AppComponent, appVars(env, rt)))
+		s.adoptDomains(env, pe, rt)
 		if err := s.store.CreateEnvironment(ctx, env); err != nil {
 			s.log.Warn("adopting environment", "environment", id, "err", err)
 		}

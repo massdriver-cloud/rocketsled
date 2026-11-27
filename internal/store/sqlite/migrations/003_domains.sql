@@ -1,0 +1,1 @@
+ALTER TABLE environments ADD COLUMN domains TEXT NOT NULL DEFAULT '';

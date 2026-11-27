@@ -284,6 +284,9 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 	out := &domain.PaaS{Pinned: p.Pinned, Highlights: p.Highlights, Plans: map[string]map[string]domain.Plan{}, Limits: domain.Limits{
 		AppsPerPerson: p.Limits.AppsPerPerson, TotalApps: p.Limits.TotalApps, Presets: p.Limits.Presets, Addons: p.Limits.Addons, TTL: p.Limits.TTL,
 	}}
+	if d := p.Domains; d != nil {
+		out.Domains = &domain.Domains{Component: d.Component, Param: d.Param, TargetField: d.TargetField}
+	}
 	for _, r := range p.Runtimes {
 		out.Runtimes = append(out.Runtimes, domain.Runtime{
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
