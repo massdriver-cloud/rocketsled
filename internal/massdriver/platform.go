@@ -491,17 +491,56 @@ func (c *Client) DecommissionInstance(ctx context.Context, instanceID string, pa
 }
 
 func (c *Client) createDeployment(ctx context.Context, instanceID, action string, params map[string]any, message string) error {
+	_, err := c.startDeployment(ctx, instanceID, action, params, message)
+	return err
+}
+
+// StartDeployment provisions one instance and returns the deployment's ID.
+func (c *Client) StartDeployment(ctx context.Context, instanceID string, params map[string]any, message string) (string, error) {
+	return c.startDeployment(ctx, instanceID, "PROVISION", params, message)
+}
+
+func (c *Client) startDeployment(ctx context.Context, instanceID, action string, params map[string]any, message string) (string, error) {
 	var out struct {
-		CreateDeployment payload[struct{ ID string }] `json:"createDeployment"`
+		CreateDeployment payload[struct {
+			ID string `json:"id"`
+		}] `json:"createDeployment"`
 	}
 	vars := map[string]any{
 		"id":    instanceID,
 		"input": map[string]any{"action": action, "message": message, "params": mapArg(params)},
 	}
 	if err := c.do(ctx, createDeploymentMutation, vars, &out); err != nil {
-		return err
+		return "", err
 	}
-	return out.CreateDeployment.check("createDeployment")
+	if err := out.CreateDeployment.check("createDeployment"); err != nil {
+		return "", err
+	}
+	if out.CreateDeployment.Result == nil {
+		return "", errNilResult
+	}
+	return out.CreateDeployment.Result.ID, nil
+}
+
+const deploymentQuery = `
+query RocketsledDeployment($organizationId: ID!, $id: UUID!) {
+  deployment(organizationId: $organizationId, id: $id) { id status }
+}`
+
+// DeploymentStatus reports a deployment's status: PENDING, RUNNING, COMPLETED, FAILED and so on.
+func (c *Client) DeploymentStatus(ctx context.Context, deploymentID string) (string, error) {
+	var out struct {
+		Deployment *struct {
+			Status string `json:"status"`
+		} `json:"deployment"`
+	}
+	if err := c.do(ctx, deploymentQuery, map[string]any{"id": deploymentID}, &out); err != nil {
+		return "", err
+	}
+	if out.Deployment == nil {
+		return "", &APIError{Code: "NOT_FOUND", Message: "deployment " + deploymentID + " not found"}
+	}
+	return out.Deployment.Status, nil
 }
 
 const updateEnvironmentMutation = `

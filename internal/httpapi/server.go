@@ -93,6 +93,11 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/environments/{id}", s.account(s.handleGetEnvironment))
 	m.HandleFunc("DELETE /api/v1/environments/{id}", s.account(s.handleDestroyEnvironment))
 	m.HandleFunc("POST /api/v1/environments/{id}/deploys", s.account(s.handleDeployEnvironment))
+	m.HandleFunc("GET /api/v1/account/tokens", s.account(s.handleListTokens))
+	m.HandleFunc("POST /api/v1/account/tokens", s.account(s.handleCreateToken))
+	m.HandleFunc("DELETE /api/v1/account/tokens/{id}", s.account(s.handleRevokeToken))
+	m.HandleFunc("GET /api/v1/environments/{id}/releases", s.releaser(s.handleListReleases))
+	m.HandleFunc("POST /api/v1/environments/{id}/releases", s.releaser(s.handleRelease))
 	m.HandleFunc("POST /api/v1/environments/{id}/addons", s.account(s.handleAddAddon))
 	m.HandleFunc("DELETE /api/v1/environments/{id}/addons/{component}", s.account(s.handleRemoveAddon))
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
@@ -168,6 +173,29 @@ func (s *Server) account(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), accountKey{}, a)))
 	})
+}
+
+// releaser accepts a deploy token as a bearer token, or a signed-in user.
+func (s *Server) releaser(next http.HandlerFunc) http.HandlerFunc {
+	session := s.account(next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		scheme, secret, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		if !strings.EqualFold(scheme, "Bearer") {
+			session(w, r)
+			return
+		}
+		a, u, err := s.svc.Authenticate(r.Context(), strings.TrimSpace(secret))
+		if err != nil {
+			if errors.Is(err, domain.ErrForbidden) {
+				writeError(w, http.StatusUnauthorized, err.Error(), "")
+				return
+			}
+			s.writeDomainError(w, err)
+			return
+		}
+		ctx := context.WithValue(context.WithValue(r.Context(), userKey{}, u), accountKey{}, a)
+		next(w, r.WithContext(ctx))
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -485,6 +513,62 @@ func (s *Server) handleDeployEnvironment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
+	tokens, err := s.svc.ListTokens(r.Context(), accountFrom(r.Context()))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	t, err := s.svc.CreateToken(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), in.Name)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.RevokeToken(r.Context(), accountFrom(r.Context()), r.PathValue("id")); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListReleases(w http.ResponseWriter, r *http.Request) {
+	releases, err := s.svc.ListReleases(r.Context(), accountFrom(r.Context()), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, releases)
+}
+
+func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
+	var in domain.ReleaseInput
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	release, err := s.svc.Release(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"), in)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, release)
 }
 
 func (s *Server) handleAddAddon(w http.ResponseWriter, r *http.Request) {

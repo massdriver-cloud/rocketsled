@@ -91,8 +91,11 @@ type harness struct {
 	ids       []string
 }
 
-func newHarness(t *testing.T, mode domain.AccountMode) *harness {
+func newHarness(t *testing.T, mode domain.AccountMode, catalogs ...domain.Catalog) *harness {
 	t.Helper()
+	if len(catalogs) == 0 {
+		catalogs = []domain.Catalog{awsCatalog(), legacyCatalog()}
+	}
 	h := &harness{
 		platform:  &mocks.PlatformMock{},
 		installer: &mocks.InstallerMock{},
@@ -111,6 +114,10 @@ func newHarness(t *testing.T, mode domain.AccountMode) *harness {
 		return liveEnv("serverless-"+req.ID, "INITIALIZED"), nil
 	}
 	h.platform.CreateResourceFunc = func(context.Context, string, string, map[string]any) (string, error) { return "res-role", nil }
+	h.platform.StartDeploymentFunc = func(ctx context.Context, id string, params map[string]any, msg string) (string, error) {
+		return "dep-1", h.platform.DeployInstance(ctx, id, params, msg)
+	}
+	h.platform.DeploymentStatusFunc = func(context.Context, string) (string, error) { return "COMPLETED", nil }
 	h.platform.CreateServiceAccountFunc = func(context.Context, string) (string, error) { return "md_sa_token", nil }
 	h.installer.InstallFunc = func(_ context.Context, req domain.InstallRequest) (*domain.InstallResult, error) {
 		_, _ = io.WriteString(req.Log, "==> publishing\n")
@@ -127,7 +134,7 @@ func newHarness(t *testing.T, mode domain.AccountMode) *harness {
 		Store:            h.store,
 		SCMs:             []domain.SCM{scm},
 		Installer:        h.installer,
-		Catalogs:         []domain.Catalog{awsCatalog(), legacyCatalog()},
+		Catalogs:         catalogs,
 		Mode:             mode,
 		SharedCredential: domain.Credential{URL: "https://api.massdriver.cloud", OrganizationID: "rs-shared", APIKey: "md_shared"},
 		OrgCreator:       domain.Credential{URL: "https://api.massdriver.cloud", APIKey: "md_pat"},

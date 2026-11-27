@@ -316,12 +316,12 @@ func (s *Store) GetBootstrapState(ctx context.Context, accountID string) ([]byte
 
 // --- environments ------------------------------------------------------------
 
-const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons`
+const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons, image`
 
 func scanEnvironment(row interface{ Scan(...any) error }) (*domain.Environment, error) {
 	var e domain.Environment
 	var presets, created, updated, addons string
-	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons); err != nil {
+	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons, &e.Image); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(addons), &e.Addons); err != nil {
@@ -348,8 +348,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons))
+	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image)
 	if isUnique(err) {
 		return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
 	}
@@ -390,8 +390,8 @@ func (s *Store) UpdateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ? WHERE id = ?`,
-		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ?, image = ? WHERE id = ?`,
+		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.Image, e.ID)
 	if err != nil {
 		return err
 	}
@@ -454,6 +454,103 @@ func (s *Store) ListRuns(ctx context.Context, environmentID string, limit int) (
 			return nil, err
 		}
 		out = append(out, *r)
+	}
+	return out, rows.Err()
+}
+
+// --- deploy tokens -------------------------------------------------------------
+
+//nolint:gosec // column names, not a credential
+const tokenColumns = `id, account_id, name, created_by, created_at, last_used_at`
+
+func scanToken(row interface{ Scan(...any) error }) (*domain.Token, error) {
+	var t domain.Token
+	var created, used string
+	if err := row.Scan(&t.ID, &t.AccountID, &t.Name, &t.CreatedBy, &created, &used); err != nil {
+		return nil, err
+	}
+	t.CreatedAt = parseTime(created)
+	if used != "" {
+		at := parseTime(used)
+		t.LastUsedAt = &at
+	}
+	return &t, nil
+}
+
+func (s *Store) CreateToken(ctx context.Context, t *domain.Token, hash string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO deploy_tokens (id, account_id, name, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, t.AccountID, t.Name, hash, t.CreatedBy, fmtTime(t.CreatedAt))
+	return err
+}
+
+func (s *Store) ListTokens(ctx context.Context, accountID string) ([]domain.Token, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+tokenColumns+` FROM deploy_tokens WHERE account_id = ? ORDER BY created_at`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Token{}
+	for rows.Next() {
+		t, err := scanToken(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetTokenByHash(ctx context.Context, hash string) (*domain.Token, error) {
+	t, err := scanToken(s.db.QueryRowContext(ctx, `SELECT `+tokenColumns+` FROM deploy_tokens WHERE token_hash = ?`, hash))
+	if err != nil {
+		return nil, notFound(err, "deploy token")
+	}
+	return t, nil
+}
+
+func (s *Store) TouchToken(ctx context.Context, id string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deploy_tokens SET last_used_at = ? WHERE id = ?`, fmtTime(at), id)
+	return err
+}
+
+func (s *Store) DeleteToken(ctx context.Context, accountID, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM deploy_tokens WHERE id = ? AND account_id = ?`, id, accountID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("%w: deploy token %s", domain.ErrNotFound, id)
+	}
+	return nil
+}
+
+// --- releases ----------------------------------------------------------------
+
+func (s *Store) CreateRelease(ctx context.Context, r *domain.Release) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO releases (id, environment_id, number, image, description, requested_by, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.EnvironmentID, r.Number, r.Image, r.Description, r.RequestedBy, r.RunID, fmtTime(r.CreatedAt))
+	return err
+}
+
+func (s *Store) ListReleases(ctx context.Context, environmentID string, limit int) ([]domain.Release, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, environment_id, number, image, description, requested_by, run_id, created_at
+		FROM releases WHERE environment_id = ? ORDER BY number DESC LIMIT ?`, environmentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Release{}
+	for rows.Next() {
+		var r domain.Release
+		var created string
+		if err := rows.Scan(&r.ID, &r.EnvironmentID, &r.Number, &r.Image, &r.Description, &r.RequestedBy, &r.RunID, &created); err != nil {
+			return nil, err
+		}
+		r.CreatedAt = parseTime(created)
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }

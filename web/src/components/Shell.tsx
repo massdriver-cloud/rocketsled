@@ -27,6 +27,7 @@ export function Shell({ user, account, children }: { user: User; account?: Accou
             </NavLink>
             <NavLink to="/environments">Environments</NavLink>
             <NavLink to="/credentials">Credentials</NavLink>
+            <NavLink to="/tokens">Deploy tokens</NavLink>
           </nav>
         )}
         <div className="side__foot">

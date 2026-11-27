@@ -111,6 +111,7 @@ export interface Environment {
   presets: Record<string, string>;
   runtime?: string;
   addons?: string[];
+  image?: string;
   state: EnvironmentState;
   createdAt: string;
   updatedAt: string;
@@ -127,7 +128,7 @@ export type RunStatus = "queued" | "running" | "succeeded" | "failed";
 export interface Run {
   id: string;
   number: number;
-  trigger: "create" | "deploy" | "addon";
+  trigger: "create" | "deploy" | "addon" | "release";
   status: RunStatus;
   message?: string;
   createdAt: string;
@@ -173,6 +174,23 @@ export interface EnvironmentView {
   platform?: PlatformEnvironment;
   runs: Run[];
   gone: boolean;
+  release?: { component: string; param: string };
+}
+
+export interface DeployToken {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+export interface Release {
+  id: string;
+  number: number;
+  image: string;
+  description?: string;
+  requestedBy: string;
+  createdAt: string;
 }
 
 export interface Skin {

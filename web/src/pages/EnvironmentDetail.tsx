@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, timeAgo } from "../api";
 import type { EnvironmentView } from "../types";
 import { Highlights, Loading, Notice, Pill } from "../components/ui";
+import { Releases } from "../components/Releases";
 
 const FAST = 4000;
 const SLOW = 20000;
@@ -159,6 +160,8 @@ export function EnvironmentDetail() {
         </div>
       </div>
 
+      {view.release && <Releases env={environment} component={view.release.component} onRelease={refresh} />}
+
       <div className="section">
         <div className="section__title">
           <h2>Deploys</h2>
@@ -180,7 +183,7 @@ export function EnvironmentDetail() {
                   <td>
                     <Pill status={r.status} live={r.status === "running" || r.status === "queued"} />
                   </td>
-                  <td>{r.trigger === "create" ? "Environment created" : "Redeploy"}</td>
+                  <td>{r.trigger === "create" ? "Environment created" : r.trigger === "deploy" ? "Redeploy" : r.message}</td>
                   <td className="muted" title={r.createdAt}>
                     {timeAgo(r.createdAt)}
                   </td>

@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"strings"
 	"sync"
@@ -38,7 +39,12 @@ func presetSchema(names ...string) map[string]any {
 	for _, n := range names {
 		examples = append(examples, map[string]any{"__name": n, "size": strings.ToLower(n)})
 	}
-	return map[string]any{"examples": examples}
+	return map[string]any{
+		"examples": examples,
+		"properties": map[string]any{
+			"image_uri": map[string]any{"type": "string", "pattern": `^[a-z0-9./:@_-]+$`, "message": map[string]any{"pattern": "use a lowercase image reference"}},
+		},
+	}
 }
 
 func (w *tenantWorld) environment(id string) *domain.PlatformEnvironment {
@@ -126,6 +132,25 @@ func newTenantHarness(t *testing.T, paas *domain.PaaS) *tenantHarness {
 	p.DeployInstanceFunc = func(_ context.Context, id string, params map[string]any, _ string) error {
 		w.set(id, "PROVISIONED", params)
 		return nil
+	}
+	started := map[string]string{}
+	p.StartDeploymentFunc = func(ctx context.Context, id string, params map[string]any, msg string) (string, error) {
+		if err := p.DeployInstance(ctx, id, params, msg); err != nil {
+			return "", err
+		}
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		dep := fmt.Sprintf("dep-%d", len(started)+1)
+		started[dep] = id
+		return dep, nil
+	}
+	p.DeploymentStatusFunc = func(_ context.Context, dep string) (string, error) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if w.status[started[dep]] == "FAILED" {
+			return "FAILED", nil
+		}
+		return "COMPLETED", nil
 	}
 	p.DecommissionInstanceFunc = func(_ context.Context, id string, _ map[string]any, _ string) error {
 		w.set(id, "DECOMMISSIONED", nil)

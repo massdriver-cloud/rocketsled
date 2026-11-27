@@ -978,6 +978,8 @@ type EnvironmentView struct {
 	Runs        []Run                `json:"runs"`
 	// Gone is true when a decommissioned environment has been fully removed.
 	Gone bool `json:"gone"`
+	// Release says where released images land, when the environment takes them.
+	Release *ReleaseTarget `json:"release,omitempty"`
 }
 
 // EnvironmentStatus returns live state, refreshing run statuses from the
@@ -992,6 +994,9 @@ func (s *Service) EnvironmentStatus(ctx context.Context, account *Account, id st
 		return nil, err
 	}
 	view := &EnvironmentView{Environment: *env, Runs: []Run{}}
+	if target, err := s.releaseTarget(account, env); err == nil {
+		view.Release = target
+	}
 	live, err := platform.GetEnvironment(ctx, env.EnvironmentID)
 	if err != nil {
 		if env.State == EnvironmentStateDecommissioning && errors.Is(err, ErrNotFound) {
@@ -1102,17 +1107,21 @@ func (s *Service) DeployEnvironment(ctx context.Context, user *User, account *Ac
 }
 
 // startRun records the next numbered run of env, marks env deploying and does
-// work in the background, recording how it ended.
+// work in the background, recording how it ended. Only one change at a time
+// runs per environment; releases are the exception, since Massdriver queues
+// deployments of one instance and a build shouldn't fail because another is
+// still going.
 func (s *Service) startRun(ctx context.Context, user *User, env *Environment, trigger RunTrigger, summary string, work func(context.Context) error) (*Run, error) {
 	if env.State == EnvironmentStateDecommissioning {
 		return nil, fmt.Errorf("%w: the environment is being destroyed", ErrConflict)
 	}
-	if !s.claim(env.ID) {
+	exclusive := trigger != TriggerRelease
+	if exclusive && !s.claim(env.ID) {
 		return nil, fmt.Errorf("%w: %s is still deploying; try again when it finishes", ErrConflict, env.Name)
 	}
 	started := false
 	defer func() {
-		if !started {
+		if exclusive && !started {
 			s.release(env.ID)
 		}
 	}()
@@ -1136,7 +1145,9 @@ func (s *Service) startRun(ctx context.Context, user *User, env *Environment, tr
 	envRecordID, runCopy := env.ID, *run
 	started = true
 	s.runAsync(func() {
-		defer s.release(envRecordID)
+		if exclusive {
+			defer s.release(envRecordID)
+		}
 		bg := context.Background()
 		s.finishRun(bg, &runCopy, envRecordID, work(bg))
 	})

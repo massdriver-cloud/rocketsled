@@ -54,7 +54,7 @@ func (s *Service) AddAddon(ctx context.Context, user *User, account *Account, id
 
 	rt := s.runtimeConfig(env.Runtime)
 	vars := appVars(env, rt)
-	params := s.consumerParams(live, env, ro.links, addon.Slug, rt, vars)
+	params := s.consumerParams(live, env, ro.links, addon.Slug, rt)
 	params[addon.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), s.pinnedFor(rt, addon.Slug, vars))
 	links := ro.links
 	return s.startRun(ctx, user, env, TriggerAddon, "Added "+addon.Name, func(bg context.Context) error {
@@ -95,7 +95,7 @@ func (s *Service) RemoveAddon(ctx context.Context, user *User, account *Account,
 		}
 	}
 	rt := s.runtimeConfig(env.Runtime)
-	params := s.consumerParams(live, env, ro.links, component, rt, appVars(env, rt))
+	params := s.consumerParams(live, env, ro.links, component, rt)
 	envRecordID, envID, links := env.ID, env.EnvironmentID, ro.links
 	return s.startRun(ctx, user, env, TriggerAddon, "Removed "+name, func(bg context.Context) error {
 		if deployed {
@@ -147,7 +147,7 @@ func (s *Service) tenantApp(ctx context.Context, account *Account, id string) (*
 
 // consumerParams are the current params, with pinned params over them, of every
 // picked component linked from producer.
-func (s *Service) consumerParams(live *PlatformEnvironment, env *Environment, links []Link, producer string, rt Runtime, vars map[string]string) map[string]map[string]any {
+func (s *Service) consumerParams(live *PlatformEnvironment, env *Environment, links []Link, producer string, rt Runtime) map[string]map[string]any {
 	params := map[string]map[string]any{}
 	for _, l := range links {
 		if l.From != producer || l.To == producer {
@@ -158,11 +158,21 @@ func (s *Service) consumerParams(live *PlatformEnvironment, env *Environment, li
 		}
 		for _, pi := range live.Instances {
 			if pi.ComponentSlug == l.To {
-				params[l.To] = MergeParams(pi.Params, s.pinnedFor(rt, l.To, vars))
+				params[l.To] = s.componentParams(env, rt, l.To, pi.Params)
 			}
 		}
 	}
 	return params
+}
+
+// componentParams are base with pinned params over it, and the image last
+// released to the app component over those.
+func (s *Service) componentParams(env *Environment, rt Runtime, slug string, base map[string]any) map[string]any {
+	out := MergeParams(base, s.pinnedFor(rt, slug, appVars(env, rt)))
+	if env.Image != "" && slug == rt.AppComponent && rt.ImageParam != "" {
+		out[rt.ImageParam] = env.Image
+	}
+	return out
 }
 
 func (s *Service) pinnedFor(rt Runtime, slug string, vars map[string]string) map[string]any {

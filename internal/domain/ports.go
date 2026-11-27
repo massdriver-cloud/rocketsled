@@ -27,6 +27,10 @@ type Platform interface {
 	CopyInstance(ctx context.Context, sourceID, destinationID string, overrides map[string]any) error
 	// DeployInstance provisions one instance with exactly these params.
 	DeployInstance(ctx context.Context, instanceID string, params map[string]any, message string) error
+	// StartDeployment provisions one instance and returns the deployment's ID.
+	StartDeployment(ctx context.Context, instanceID string, params map[string]any, message string) (string, error)
+	// DeploymentStatus reports a deployment's status: PENDING, RUNNING, COMPLETED, FAILED and so on.
+	DeploymentStatus(ctx context.Context, deploymentID string) (string, error)
 	// DecommissionInstance tears down one instance's infrastructure.
 	DecommissionInstance(ctx context.Context, instanceID string, params map[string]any, message string) error
 	// SetEnvironmentDescription replaces an environment's description.
@@ -223,4 +227,13 @@ type Store interface {
 	CreateRun(ctx context.Context, r *Run) error
 	UpdateRun(ctx context.Context, r *Run) error
 	ListRuns(ctx context.Context, environmentID string, limit int) ([]Run, error)
+
+	CreateToken(ctx context.Context, t *Token, hash string) error
+	ListTokens(ctx context.Context, accountID string) ([]Token, error)
+	GetTokenByHash(ctx context.Context, hash string) (*Token, error)
+	TouchToken(ctx context.Context, id string, at time.Time) error
+	DeleteToken(ctx context.Context, accountID, id string) error
+
+	CreateRelease(ctx context.Context, r *Release) error
+	ListReleases(ctx context.Context, environmentID string, limit int) ([]Release, error)
 }

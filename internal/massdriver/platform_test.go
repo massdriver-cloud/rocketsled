@@ -148,3 +148,17 @@ func TestCopyInstanceEncodesOverridesAsJSONString(t *testing.T) {
 	input := last.Variables["input"].(map[string]any)
 	assert.JSONEq(t, `{"throttle_rate":50}`, input["overrides"].(string))
 }
+
+func TestReleasesTrackTheirOwnDeployment(t *testing.T) {
+	c, last, _ := server(t, `{"data":{"createDeployment":{"successful":true,"result":{"id":"5f0c"}}}}`, 200)
+	id, err := c.StartDeployment(context.Background(), "ruby-hello-web", map[string]any{"image_uri": "x"}, "Release #1")
+	require.NoError(t, err)
+	assert.Equal(t, "5f0c", id)
+	assert.Equal(t, "PROVISION", last.Variables["input"].(map[string]any)["action"])
+
+	c, last, _ = server(t, `{"data":{"deployment":{"id":"5f0c","status":"RUNNING"}}}`, 200)
+	status, err := c.DeploymentStatus(context.Background(), "5f0c")
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", status)
+	assert.Equal(t, "5f0c", last.Variables["id"])
+}
