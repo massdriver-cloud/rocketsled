@@ -47,6 +47,10 @@ no cloud account. With `massdriver.account_mode: tenant`:
 - A runtime's `app_component` and `image_param` say where releases land. A build
   releases an image with a deploy token; the image wins over pinned params from
   then on, so a pinned welcome image only shows until the first release.
+- `paas.previews` (`presets`, `ttl`) lets a build make a preview per branch or pull
+  request: `PUT /api/v1/previews/pr42 {image, runtime}` with a deploy token makes it
+  with those presets the first time and releases to it after that. A preview whose
+  last release is older than `ttl` is removed; nothing else ever is.
 - `paas.plans` labels preset cards with a price and a sentence.
 - `paas.highlights` lists, per resource type, the payload fields the app page shows
   and their order (`website: [url]`). Other types show their first five fields in
@@ -127,6 +131,7 @@ deploy token as a bearer token, which is good for nothing else.
 | GET, POST | `/api/v1/account/tokens` | Deploy tokens; create one (`{name}`), its secret is returned once |
 | DELETE | `/api/v1/account/tokens/{id}` | Revoke a deploy token |
 | GET, POST | `/api/v1/environments/{id}/releases` | Releases, newest first; release an image (`{image, description}`), returns 202. `{id}` may be the slug. Accepts `Authorization: Bearer <deploy token>` |
+| PUT, DELETE | `/api/v1/previews/{name}` | Tenant mode: make a preview and release to it (`{image, description, runtime}`), or remove it. Takes a deploy token, returns 202 |
 | POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
 | DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
 | GET, PUT | `/api/v1/environments/{id}/domains` | Tenant mode: custom domains with the CNAME each needs; replace them (`{domains}`), returns 202 |

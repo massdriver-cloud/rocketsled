@@ -151,6 +151,8 @@ type Environment struct {
 	// Runtime and Addons are what a tenant-mode customer picked.
 	Runtime string   `json:"runtime,omitempty"`
 	Addons  []string `json:"addons,omitempty"`
+	// Preview marks an app a build made for a branch; it is removed when it goes quiet.
+	Preview bool `json:"preview,omitempty"`
 	// Image is the last image released to the app component; it wins over pinned params.
 	Image string `json:"image,omitempty"`
 	// Domains are the hostnames the customer pointed at the app; nil until they set any.

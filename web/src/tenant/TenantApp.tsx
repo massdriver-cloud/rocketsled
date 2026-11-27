@@ -265,27 +265,23 @@ function Apps() {
         </div>
       )}
       {apps &&
-        apps.length > 0 &&
-        byStage(apps, offer?.stages ?? []).map((group) => (
+        byStage(
+          apps.filter((a) => !a.preview),
+          offer?.stages ?? [],
+        ).map((group) => (
           <div key={group.id} className="t-stage">
             {group.name && <h2 className="t-stage__name">{group.name}</h2>}
-            <div className="list">
-              {group.apps.map((a) => (
-                <Link key={a.id} to={`/apps/${a.id}`} className="card item t-app">
-                  <div className="item__text">
-                    <span className="item__title">{a.name}</span>
-                    <span className="item__meta">
-                      <span>{runtimeName(offer, a.runtime)}</span>
-                      {a.addons && a.addons.length > 0 && <span>+ {a.addons.join(", ")}</span>}
-                      <span>created {timeAgo(a.createdAt)}</span>
-                    </span>
-                  </div>
-                  <State state={a.state} />
-                </Link>
-              ))}
-            </div>
+            <AppList apps={group.apps} />
           </div>
         ))}
+      {apps && apps.some((a) => a.preview) && (
+        <div className="section">
+          <div className="section__title">
+            <h2>Previews</h2>
+          </div>
+          <AppList apps={apps.filter((a) => a.preview)} />
+        </div>
+      )}
     </>
   );
 }
@@ -295,6 +291,28 @@ function byStage(apps: Environment[], stages: StageSummary[]) {
   const rest = apps.filter((a) => !stages.some((s) => s.id === a.stage));
   if (rest.length > 0) groups.push({ id: "", name: stages.length > 0 ? "Other" : "", apps: rest });
   return groups.filter((g) => g.apps.length > 0);
+}
+
+function AppList({ apps }: { apps: Environment[] }) {
+  const { offer } = useSkin();
+  return (
+    <div className="list">
+      {apps.map((a) => (
+        <Link key={a.id} to={`/apps/${a.id}`} className="card item t-app">
+          <div className="item__text">
+            <span className="item__title">{a.name}</span>
+            <span className="item__meta">
+              <span>{runtimeName(offer, a.runtime)}</span>
+              {a.addons && a.addons.length > 0 && <span>+ {a.addons.join(", ")}</span>}
+              {a.preview && a.image && <span className="mono">{a.image.replace(/^.*\//, "")}</span>}
+              <span>created {timeAgo(a.createdAt)}</span>
+            </span>
+          </div>
+          <State state={a.state} />
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 const slugPattern = /^[a-z0-9]{1,20}$/;

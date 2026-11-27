@@ -239,16 +239,34 @@ func (s *Service) ListReleases(ctx context.Context, account *Account, ref string
 // environmentByRef finds an owned environment by ID or, for a build that only
 // knows the name it deploys to, by slug.
 func (s *Service) environmentByRef(ctx context.Context, account *Account, ref string) (*Environment, error) {
+	if env, err := s.bySlug(ctx, account, ref); env != nil || err != nil {
+		return env, err
+	}
+	if env, err := s.store.GetEnvironment(ctx, ref); err == nil && env.AccountID == account.ID {
+		return env, nil
+	}
+	if s.tenant() {
+		// The store may have lost an app Massdriver still has.
+		if err := s.syncTenant(ctx, account); err == nil {
+			if env, err := s.bySlug(ctx, account, ref); env != nil || err != nil {
+				return env, err
+			}
+		}
+	}
+	return s.ownedEnvironment(ctx, account, ref)
+}
+
+func (s *Service) bySlug(ctx context.Context, account *Account, slug string) (*Environment, error) {
 	envs, err := s.store.ListEnvironments(ctx, account.ID)
 	if err != nil {
 		return nil, err
 	}
 	for i := range envs {
-		if envs[i].Slug == ref {
+		if envs[i].Slug == slug {
 			return &envs[i], nil
 		}
 	}
-	return s.ownedEnvironment(ctx, account, ref)
+	return nil, nil
 }
 
 // releaseTarget is the runtime's app component in tenant mode, the catalog's otherwise.

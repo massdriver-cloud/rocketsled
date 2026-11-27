@@ -279,6 +279,11 @@ func TestDeployTokensReleaseOverBearerAuth(t *testing.T) {
 	r = e.doWith(t, http.MethodGet, "/api/v1/environments/production/releases", nil, false, "bearer "+created.Token)
 	assert.Equal(t, http.StatusOK, r.StatusCode, "the scheme is case-insensitive")
 
+	r = e.doWith(t, http.MethodPut, "/api/v1/previews/pr1", map[string]any{"image": "app:v1"}, false, bearer)
+	assert.Equal(t, http.StatusNotFound, r.StatusCode, "previews take a deploy token, and are only offered in tenant mode")
+	r = e.doWith(t, http.MethodDelete, "/api/v1/previews/pr1", nil, false, bearer)
+	assert.Equal(t, http.StatusNotFound, r.StatusCode)
+
 	r = e.do(t, http.MethodDelete, "/api/v1/account/tokens/"+created.ID, nil, true)
 	assert.Equal(t, http.StatusNoContent, r.StatusCode)
 	r = e.doWith(t, http.MethodPost, "/api/v1/environments/production/releases", map[string]any{"image": "app:v2"}, false, bearer)

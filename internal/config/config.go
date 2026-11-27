@@ -45,6 +45,7 @@ type PaaS struct {
 	Limits     Limits                     `yaml:"limits"`
 	Domains    *Domains                   `yaml:"domains"`
 	Pipeline   Pipeline                   `yaml:"pipeline"`
+	Previews   *Previews                  `yaml:"previews"`
 }
 
 // Domains names the component customers' own hostnames land on: the param that
@@ -69,6 +70,14 @@ type Stage struct {
 	ID      string            `yaml:"id"`
 	Name    string            `yaml:"name"`
 	Presets map[string]string `yaml:"presets"`
+}
+
+// Previews are short-lived apps a build makes per branch or pull request.
+type Previews struct {
+	// Presets pick a plan per component; an add-on listed here is deployed.
+	Presets map[string]string `yaml:"presets"`
+	// TTL removes a preview this long after its last release; zero keeps them.
+	TTL time.Duration `yaml:"ttl"`
 }
 
 // Limits keep an open sign-up from running up the operator's bill.

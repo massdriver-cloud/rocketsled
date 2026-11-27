@@ -770,6 +770,9 @@ type CreateEnvironmentInput struct {
 	Runtime string   `json:"runtime,omitempty"`
 	Addons  []string `json:"addons,omitempty"`
 	Stage   string   `json:"stage,omitempty"`
+	// Preview and Image come from a build making a preview, never from a request body.
+	Preview bool   `json:"-"`
+	Image   string `json:"-"`
 }
 
 // CreateEnvironment forks the base environment, applies one preset per component,
