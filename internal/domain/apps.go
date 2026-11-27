@@ -75,6 +75,9 @@ func (s *Service) CreateApp(ctx context.Context, user *User, account *Account, i
 		if ownerOf(existing.Description) != account.OwnerUserID {
 			return nil, Invalid("name", "%s is taken; try another name", id)
 		}
+		if m := runtimePattern.FindStringSubmatch(existing.Description); m == nil || m[1] != rt.ID {
+			return nil, Invalid("name", "you already have %s on another runtime", id)
+		}
 	case errors.Is(err, ErrNotFound):
 		err = platform.CreateProjectFromEnvironment(ctx, templateID(rt), NewProject{
 			ID: id, Name: id, Description: describeAppProject(user.Login, account.OwnerUserID, rt.ID),
@@ -90,8 +93,11 @@ func (s *Service) CreateApp(ctx context.Context, user *User, account *Account, i
 	if err := s.copyDefaults(ctx, platform, templateID(rt), app); err != nil {
 		return nil, err
 	}
-	if err := s.store.CreateApp(ctx, app); err != nil && !errors.Is(err, ErrConflict) {
-		return nil, err
+	if err := s.store.CreateApp(ctx, app); err != nil {
+		if !errors.Is(err, ErrConflict) {
+			return nil, err
+		}
+		return s.store.GetApp(ctx, app.ID)
 	}
 	return app, nil
 }

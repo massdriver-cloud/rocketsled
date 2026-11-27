@@ -150,21 +150,36 @@ func (s *Service) ensurePlatform(ctx context.Context) error {
 			return fmt.Errorf("%s is %s; deploy it, or list %s under paas.platform.components", pi.ID, strings.ToLower(pi.Status), share.Component)
 		}
 		resourceID := pi.ID + "." + share.Field
-		for _, project := range s.runtimeProjects() {
+		projects, templates := s.runtimeProjects(), make([]string, 0, len(s.paas.Runtimes))
+		for _, rt := range s.paas.Runtimes {
+			templates = append(templates, templateID(rt))
+		}
+		if s.appProjects() {
+			// Apps made before a share was added get it too.
+			apps, err := s.appsHere(ctx, platform)
+			if err != nil {
+				return err
+			}
+			for i := range apps {
+				projects = append(projects, apps[i].ID)
+				templates = append(templates, apps[i].templateID())
+			}
+		}
+		for _, project := range projects {
 			if err := platform.GrantResourceToProject(ctx, resourceID, project); err != nil {
 				return fmt.Errorf("share %s with %s: %w", resourceID, project, err)
 			}
 		}
-		for _, rt := range s.paas.Runtimes {
-			pinned, err := platform.EnvironmentDefaults(ctx, templateID(rt))
+		for _, tmpl := range templates {
+			pinned, err := platform.EnvironmentDefaults(ctx, tmpl)
 			if err != nil {
-				return fmt.Errorf("read defaults of %s: %w", templateID(rt), err)
+				return fmt.Errorf("read defaults of %s: %w", tmpl, err)
 			}
 			if slices.Contains(pinned, resourceID) {
 				continue
 			}
-			if err := platform.SetEnvironmentDefault(ctx, templateID(rt), resourceID); err != nil {
-				return fmt.Errorf("pin %s on %s: %w", resourceID, templateID(rt), err)
+			if err := platform.SetEnvironmentDefault(ctx, tmpl, resourceID); err != nil {
+				return fmt.Errorf("pin %s on %s: %w", resourceID, tmpl, err)
 			}
 		}
 	}

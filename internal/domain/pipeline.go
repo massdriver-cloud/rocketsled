@@ -128,6 +128,9 @@ func (s *Service) Promote(ctx context.Context, user *User, account *Account, id 
 	if target.Runtime != source.Runtime {
 		return nil, Invalid("to", "%s runs %s and %s runs %s; promote only between apps of one runtime", source.Name, source.Runtime, target.Name, target.Runtime)
 	}
+	if target.App != source.App {
+		return nil, Invalid("to", "%s and %s belong to different apps", source.Name, target.Name)
+	}
 	from, to := s.paas.Pipeline.index(source.Stage), s.paas.Pipeline.index(target.Stage)
 	if from < 0 || to <= from {
 		return nil, Invalid("to", "promote to an app in a later stage than %s", source.Name)

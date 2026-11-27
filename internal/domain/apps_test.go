@@ -146,3 +146,18 @@ func TestPreviewsLiveInTheirApp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "shop-pr9", env.ID)
 }
+
+func TestRetryingAnAppOnAnotherRuntimeIsRefused(t *testing.T) {
+	paas := appProjectsPaaS()
+	paas.Runtimes = append(paas.Runtimes, domain.Runtime{ID: "node", Name: "Node", Project: "ruby", Template: "template", AppProjects: true})
+	h := newTenantHarness(t, paas)
+	ctx := context.Background()
+	_, err := h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "node"})
+	require.NoError(t, err)
+	var verr *domain.ValidationError
+	_, err = h.svc.CreateApp(ctx, h.user, h.account, domain.CreateAppInput{Name: "shop", Runtime: "ruby"})
+	require.ErrorAs(t, err, &verr)
+	stored, err := h.store.GetApp(ctx, "shop")
+	require.NoError(t, err)
+	assert.Equal(t, "node", stored.Runtime)
+}
