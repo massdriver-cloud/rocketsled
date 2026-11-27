@@ -31,7 +31,9 @@ type manifest struct {
 		ResourceTypes string `yaml:"resource_types"`
 		Bundles       string `yaml:"bundles"`
 	} `yaml:"paths"`
-	Bootstrap struct {
+	// Highlights lists, per resource type, the payload fields the environment page shows.
+	Highlights map[string][]string `yaml:"highlights"`
+	Bootstrap  struct {
 		Project         string `yaml:"project"`
 		BaseEnvironment string `yaml:"base_environment"`
 		AppComponent    string `yaml:"app_component"`
@@ -189,6 +191,7 @@ func Load(dir string) (*domain.Catalog, error) {
 		ResourceTypes: m.ResourceTypes,
 		Bundles:       m.Bundles,
 		Platforms:     []domain.PlatformType{},
+		Highlights:    m.Highlights,
 		Bootstrap: domain.Bootstrap{
 			Project:         m.Bootstrap.Project,
 			BaseEnvironment: m.Bootstrap.BaseEnvironment,

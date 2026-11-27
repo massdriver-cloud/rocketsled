@@ -91,6 +91,8 @@ type Catalog struct {
 	ResourceTypes []string       `json:"resourceTypes"`
 	Bundles       []string       `json:"bundles"`
 	Bootstrap     Bootstrap      `json:"bootstrap"`
+	// Highlights picks which payload fields the environment page shows, per resource type.
+	Highlights map[string][]string `json:"-"`
 	// Dir is the catalog's directory on disk.
 	Dir   string       `json:"-"`
 	Paths CatalogPaths `json:"-"`

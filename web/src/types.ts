@@ -139,6 +139,13 @@ export interface InstanceResource {
   name: string;
   resourceType: string;
   payload: Record<string, unknown>;
+  highlights: Highlight[];
+}
+
+export interface Highlight {
+  field: string;
+  title: string;
+  value: string;
 }
 
 export interface PlatformInstance {
@@ -210,6 +217,5 @@ export interface RuntimeOffer {
 
 export interface Offer {
   runtimes: RuntimeOffer[];
-  highlights: Record<string, string[]>;
   limits: { appsPerPerson?: number; totalApps?: number; ttlHours?: number };
 }

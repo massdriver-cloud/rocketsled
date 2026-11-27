@@ -66,7 +66,8 @@ func TestGetEnvironmentExposesSchemaResourcesAndUnfulfilled(t *testing.T) {
 		"instances":[{"id":"serverless-dev-api","name":"HTTP API","status":"PROVISIONED","params":{"region":"us-east-1"},
 		  "paramsSchema":{"examples":[{"__name":"Development","region":"us-east-1"}]},"resolvedVersion":"0.0.0","deployedVersion":"0.0.0",
 		  "component":{"id":"serverless-api","name":"HTTP API"},"bundle":{"name":"http-api"},
-		  "resources":[{"field":"api","resource":{"id":"serverless-dev-api.api","name":"HTTP API","payload":{"endpoint":"https://x"},"resourceType":{"id":"aws-http-api@0.0.0"}}}]}],
+		  "resources":[{"field":"api","resource":{"id":"serverless-dev-api.api","name":"HTTP API","payload":{"endpoint":"https://x"},
+		    "resourceType":{"id":"aws-http-api@0.0.0","schema":{"properties":{"region":{"title":"Region"},"endpoint":{"title":"Endpoint URL"},"id":{}}},"uiSchema":{}}}}]}],
 		"unfulfilledDependencies":[{"instance":{"id":"serverless-dev-app"},"field":"aws_authentication","resourceType":{"id":"aws-iam-role@0.0.0"}}]
 	}}}`, 200)
 
@@ -77,7 +78,10 @@ func TestGetEnvironmentExposesSchemaResourcesAndUnfulfilled(t *testing.T) {
 	assert.Equal(t, "api", pi.ComponentSlug)
 	assert.Equal(t, "HTTP API", pi.ComponentName)
 	assert.Equal(t, []domain.Preset{{Name: "Development", Params: map[string]any{"__name": "Development", "region": "us-east-1"}}}, pi.Presets())
-	assert.Equal(t, []domain.InstanceResource{{Field: "api", Name: "HTTP API", ResourceType: "aws-http-api@0.0.0", Payload: map[string]any{"endpoint": "https://x"}}}, pi.Resources)
+	assert.Equal(t, []domain.InstanceResource{{
+		Field: "api", Name: "HTTP API", ResourceType: "aws-http-api@0.0.0", Payload: map[string]any{"endpoint": "https://x"},
+		Fields: []domain.SchemaField{{Name: "region", Title: "Region"}, {Name: "endpoint", Title: "Endpoint URL"}, {Name: "id"}},
+	}}, pi.Resources, "schema properties keep the order the API sends")
 	assert.Equal(t, "aws-iam-role@0.0.0", env.Unfulfilled[0].ResourceType)
 }
 

@@ -23,6 +23,7 @@ func TestLoadsTheShippedCatalog(t *testing.T) {
 	assert.Equal(t, "serverless", c.Bootstrap.Project)
 	assert.Equal(t, "production", c.Bootstrap.BaseEnvironment)
 	assert.Equal(t, []string{"shared-vpc", "dynamodb-table", "http-api", "lambda-function"}, c.Bundles)
+	assert.Equal(t, []string{"endpoint", "region"}, c.Highlights["aws-http-api"])
 	require.Len(t, c.Platforms, 1)
 	p := c.Platforms[0]
 	assert.Equal(t, "aws-iam-role", p.ID)

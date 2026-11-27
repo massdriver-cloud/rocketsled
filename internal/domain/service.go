@@ -1002,6 +1002,7 @@ func (s *Service) EnvironmentStatus(ctx context.Context, account *Account, id st
 	if s.tenant() {
 		onlyPicked(env, live)
 	}
+	highlight(live, s.highlightsFor(account))
 	for i := range live.Instances {
 		live.Instances[i].Params = nil
 		if live.Instances[i].Resources == nil {
@@ -1048,6 +1049,16 @@ func (s *Service) EnvironmentStatus(ctx context.Context, account *Account, id st
 		}
 	}
 	return view, nil
+}
+
+func (s *Service) highlightsFor(account *Account) map[string][]string {
+	if s.tenant() {
+		return s.paas.Highlights
+	}
+	if c, err := s.GetCatalog(account.CatalogID); err == nil {
+		return c.Highlights
+	}
+	return nil
 }
 
 func (s *Service) ownedEnvironment(ctx context.Context, account *Account, id string) (*Environment, error) {

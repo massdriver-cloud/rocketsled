@@ -1,22 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, timeAgo } from "../api";
-import type { EnvironmentView, InstanceResource } from "../types";
-import { Loading, Notice, Pill } from "../components/ui";
+import type { EnvironmentView } from "../types";
+import { Highlights, Loading, Notice, Pill } from "../components/ui";
 
 const FAST = 4000;
 const SLOW = 20000;
-
-// Fields worth showing from a resource payload: addresses and names, never secrets.
-function highlights(r: InstanceResource): [string, string][] {
-  const out: [string, string][] = [];
-  for (const [k, v] of Object.entries(r.payload ?? {})) {
-    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") continue;
-    if (/secret|password|token|key/i.test(k)) continue;
-    out.push([k, String(v)]);
-  }
-  return out.slice(0, 5);
-}
 
 export function EnvironmentDetail() {
   const { id = "" } = useParams();
@@ -161,22 +150,7 @@ export function EnvironmentDetail() {
                     <Pill status={pi.status} live={false} />
                   </td>
                   <td>
-                    {pi.resources.length === 0 ? (
-                      <span className="muted">—</span>
-                    ) : (
-                      <dl className="kv small">
-                        {pi.resources.flatMap((r) =>
-                          highlights(r).map(([k, v]) => (
-                            <>
-                              <dt key={r.field + k + "k"}>{k}</dt>
-                              <dd key={r.field + k + "v"} className="mono">
-                                {v}
-                              </dd>
-                            </>
-                          )),
-                        )}
-                      </dl>
-                    )}
+                    <Highlights resources={pi.resources} />
                   </td>
                 </tr>
               ))}
