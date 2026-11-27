@@ -163,6 +163,7 @@ func serve(args []string, log *slog.Logger) error {
 	}
 
 	if cfg.Massdriver.AccountMode == "tenant" {
+		go a.svc.ResumeInterrupted(ctx)
 		go func() {
 			tick := time.NewTicker(5 * time.Minute)
 			defer tick.Stop()

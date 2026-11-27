@@ -486,7 +486,7 @@ function expiresIn(createdAt: string, hours: number) {
   const left = new Date(createdAt).getTime() + hours * 3600_000 - Date.now();
   if (left <= 0) return "soon";
   const h = Math.floor(left / 3600_000);
-  const m = Math.round((left % 3600_000) / 60_000);
+  const m = Math.floor((left % 3600_000) / 60_000);
   return h > 0 ? `in about ${h}h ${m}m` : `in about ${m}m`;
 }
 

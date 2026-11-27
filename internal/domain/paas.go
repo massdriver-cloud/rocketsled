@@ -274,7 +274,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		ParentEnvironmentID:     templateID(rt),
 		ID:                      in.Slug,
 		Name:                    in.Name,
-		Description:             ownerMarker(user.Login, account.OwnerUserID),
+		Description:             ownerMarker(user.Login, account.OwnerUserID, pickedPresets(picked, presets)),
 		CopyEnvironmentDefaults: true,
 	})
 	if err != nil {
@@ -493,8 +493,104 @@ func onlyPicked(env *Environment, live *PlatformEnvironment) {
 // app survives the server losing its database.
 var ownerPattern = regexp.MustCompile(`\[owner ([^\]\s]+)\]$`)
 
-func ownerMarker(login, userID string) string {
-	return fmt.Sprintf("Made in Rocketsled for %s [owner %s]", login, userID)
+func ownerMarker(login, userID string, picks map[string]string) string {
+	parts := make([]string, 0, len(picks))
+	for slug, preset := range picks {
+		parts = append(parts, slug+"="+preset)
+	}
+	slices.Sort(parts)
+	return fmt.Sprintf("Made in Rocketsled for %s [deploy %s] [owner %s]", login, strings.Join(parts, ","), userID)
+}
+
+var picksPattern = regexp.MustCompile(`\[deploy ([^\]]*)\]`)
+
+// picksOf reads which components an app deploys, and with which preset.
+func picksOf(description string) map[string]string {
+	m := picksPattern.FindStringSubmatch(description)
+	if m == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, part := range strings.Split(m[1], ",") {
+		if slug, preset, ok := strings.Cut(part, "="); ok && slug != "" {
+			out[slug] = preset
+		}
+	}
+	return out
+}
+
+func pickedPresets(picked []OfferedComponent, presets map[string]OfferedPreset) map[string]string {
+	out := make(map[string]string, len(picked))
+	for _, c := range picked {
+		out[c.Slug] = presets[c.Slug].Name
+	}
+	return out
+}
+
+// ResumeInterrupted finishes creating apps whose server stopped partway, a
+// Spot interruption or a redeploy, say: every picked component still waiting
+// to be deployed is deployed. Call it once at startup.
+func (s *Service) ResumeInterrupted(ctx context.Context) {
+	if !s.tenant() {
+		return
+	}
+	platform := s.platforms(s.shared)
+	all, runtimeOf, err := s.madeHere(ctx, platform)
+	if err != nil {
+		s.log.Warn("resume: listing apps", "err", err)
+		return
+	}
+	offer, err := s.Offer(ctx)
+	if err != nil {
+		s.log.Warn("resume: reading the offer", "err", err)
+		return
+	}
+	for _, e := range all {
+		picks := picksOf(e.Description)
+		if len(picks) == 0 || s.now().Sub(e.CreatedAt) > 6*time.Hour {
+			continue
+		}
+		rt := runtimeOf[e.ID]
+		ro, ok := offer.runtime(rt.ID)
+		if !ok {
+			continue
+		}
+		live, err := platform.GetEnvironment(ctx, e.ID)
+		if err != nil {
+			continue
+		}
+		waiting := map[string]bool{}
+		for _, pi := range live.Instances {
+			if _, ok := picks[pi.ComponentSlug]; ok && strings.EqualFold(pi.Status, "INITIALIZED") {
+				waiting[pi.ComponentSlug] = true
+			}
+		}
+		if len(waiting) == 0 {
+			continue
+		}
+		vars := map[string]string{"environment_id": e.ID, "app": strings.TrimPrefix(e.ID, rt.Project+"-"), "runtime": rt.ID}
+		params := map[string]map[string]any{}
+		for _, c := range append(append([]OfferedComponent{}, ro.Components...), ro.Addons...) {
+			if !waiting[c.Slug] {
+				continue
+			}
+			preset := OfferedPreset{Params: map[string]any{}}
+			for _, p := range c.Presets {
+				if p.Name == picks[c.Slug] || preset.Name == "" {
+					preset = p
+				}
+			}
+			pinned := MergeParams(renderPinned(s.paas.Pinned[c.Slug], vars), renderPinned(rt.Pinned[c.Slug], vars))
+			params[c.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), pinned)
+		}
+		envID, links := e.ID, ro.links
+		s.log.Info("resume: finishing an interrupted app", "environment", envID, "components", len(params))
+		s.runAsync(func() {
+			if err := s.deployInLayers(context.Background(), platform, envID, params, links, "Resumed after a restart"); err != nil {
+				s.log.Warn("resume", "environment", envID, "err", err)
+			}
+		})
+	}
 }
 
 func ownerOf(description string) string {

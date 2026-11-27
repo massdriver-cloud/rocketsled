@@ -8,7 +8,9 @@ import (
 
 func TestOwnerMarkerRoundTrips(t *testing.T) {
 	id := "open:0123456789ab:ada"
-	assert.Equal(t, id, ownerOf(ownerMarker("ada", id)))
+	marker := ownerMarker("ada", id, map[string]string{"web": "Development", "db": "Development"})
+	assert.Equal(t, id, ownerOf(marker))
+	assert.Equal(t, map[string]string{"web": "Development", "db": "Development"}, picksOf(marker))
 	assert.Empty(t, ownerOf("hand-made staging"))
 	assert.Empty(t, ownerOf(""))
 }
