@@ -118,7 +118,7 @@ func TestMutationsSendInputsAndSurfaceValidation(t *testing.T) {
 	_, hasOrg := last.Variables["organizationId"]
 	assert.False(t, hasOrg, "createOrganization takes no organization")
 
-	c, _, _ = server(t, `{"data":{"createServiceAccount":{"successful":true,"result":{"id":"sa","token":"md_new"}}}}`, 200)
+	c, _, _ = server(t, `{"data":{"createServiceAccount":{"successful":true,"result":{"id":"sa","defaultAccessToken":{"token":"md_new"}}}}}`, 200)
 	tok, err := c.CreateServiceAccount(context.Background(), "rocketsled")
 	require.NoError(t, err)
 	assert.Equal(t, "md_new", tok)
