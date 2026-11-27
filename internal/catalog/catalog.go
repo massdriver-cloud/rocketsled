@@ -24,7 +24,12 @@ type manifest struct {
 	Platforms     []string `yaml:"platforms"`
 	ResourceTypes []string `yaml:"resource_types"`
 	Bundles       []string `yaml:"bundles"`
-	Bootstrap     struct {
+	Paths         struct {
+		Platforms     string `yaml:"platforms"`
+		ResourceTypes string `yaml:"resource_types"`
+		Bundles       string `yaml:"bundles"`
+	} `yaml:"paths"`
+	Bootstrap struct {
 		Project         string `yaml:"project"`
 		BaseEnvironment string `yaml:"base_environment"`
 		AppComponent    string `yaml:"app_component"`
@@ -45,25 +50,34 @@ type platformFile struct {
 	} `yaml:"ui"`
 }
 
-// LoadAll reads every catalog under dir, sorted by name.
-func LoadAll(dir string) ([]domain.Catalog, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("read catalogs dir: %w", err)
-	}
+// LoadAll reads every catalog under each of dirs, sorted by name. A catalog ID
+// found in two places is an error.
+func LoadAll(dirs ...string) ([]domain.Catalog, error) {
 	var out []domain.Catalog
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, e.Name(), "catalog.yaml")); err != nil {
-			continue
-		}
-		c, err := Load(filepath.Join(dir, e.Name()))
+	where := map[string]string{}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return nil, fmt.Errorf("catalog %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("read catalogs dir: %w", err)
 		}
-		out = append(out, *c)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			if _, err := os.Stat(filepath.Join(path, "catalog.yaml")); err != nil {
+				continue
+			}
+			c, err := Load(path)
+			if err != nil {
+				return nil, fmt.Errorf("catalog %s: %w", path, err)
+			}
+			if first, ok := where[c.ID]; ok {
+				return nil, fmt.Errorf("catalog %q is in both %s and %s", c.ID, first, path)
+			}
+			where[c.ID] = path
+			out = append(out, *c)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -89,14 +103,34 @@ func Load(dir string) (*domain.Catalog, error) {
 	if _, err := os.Stat(filepath.Join(dir, "bootstrap")); err != nil {
 		errs = append(errs, errors.New("bootstrap/ directory is missing"))
 	}
+	paths := domain.CatalogPaths{
+		Platforms:     resolvePath(dir, m.Paths.Platforms, "platforms"),
+		ResourceTypes: resolvePath(dir, m.Paths.ResourceTypes, "resource-types"),
+		Bundles:       resolvePath(dir, m.Paths.Bundles, "bundles"),
+	}
+	for _, p := range []struct {
+		key, set, path string
+		used           bool
+	}{
+		{"paths.platforms", m.Paths.Platforms, paths.Platforms, len(m.Platforms) > 0},
+		{"paths.resource_types", m.Paths.ResourceTypes, paths.ResourceTypes, len(m.ResourceTypes) > 0},
+		{"paths.bundles", m.Paths.Bundles, paths.Bundles, len(m.Bundles) > 0},
+	} {
+		if p.set == "" && !p.used {
+			continue
+		}
+		if info, err := os.Stat(p.path); err != nil || !info.IsDir() {
+			errs = append(errs, fmt.Errorf("%s: %s is not a directory", p.key, p.path))
+		}
+	}
 	for _, rt := range m.ResourceTypes {
-		if _, err := os.Stat(filepath.Join(dir, "resource-types", rt, "massdriver.yaml")); err != nil {
-			errs = append(errs, fmt.Errorf("resource type %q has no massdriver.yaml", rt))
+		if _, err := os.Stat(filepath.Join(paths.ResourceTypes, rt, "massdriver.yaml")); err != nil {
+			errs = append(errs, fmt.Errorf("resource type %q has no massdriver.yaml in %s", rt, paths.ResourceTypes))
 		}
 	}
 	for _, b := range m.Bundles {
-		if _, err := os.Stat(filepath.Join(dir, "bundles", b, "massdriver.yaml")); err != nil {
-			errs = append(errs, fmt.Errorf("bundle %q has no massdriver.yaml", b))
+		if _, err := os.Stat(filepath.Join(paths.Bundles, b, "massdriver.yaml")); err != nil {
+			errs = append(errs, fmt.Errorf("bundle %q has no massdriver.yaml in %s", b, paths.Bundles))
 		}
 	}
 	c := &domain.Catalog{
@@ -114,10 +148,11 @@ func Load(dir string) (*domain.Catalog, error) {
 			AppComponent:    m.Bootstrap.AppComponent,
 			ImageParam:      m.Bootstrap.ImageParam,
 		},
-		Dir: dir,
+		Dir:   dir,
+		Paths: paths,
 	}
 	for _, p := range m.Platforms {
-		pt, err := loadPlatform(filepath.Join(dir, "platforms", p))
+		pt, err := loadPlatform(filepath.Join(paths.Platforms, p))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("platform %q: %w", p, err))
 			continue
@@ -128,6 +163,17 @@ func Load(dir string) (*domain.Catalog, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// resolvePath places a catalog.yaml path relative to the catalog directory.
+func resolvePath(dir, set, fallback string) string {
+	if set == "" {
+		return filepath.Join(dir, fallback)
+	}
+	if filepath.IsAbs(set) {
+		return filepath.Clean(set)
+	}
+	return filepath.Join(dir, set)
 }
 
 func loadPlatform(dir string) (*domain.PlatformType, error) {

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/massdriver-cloud/rocketsled/internal/catalog"
+	"github.com/massdriver-cloud/rocketsled/internal/domain"
 )
 
 func TestLoadsTheShippedCatalog(t *testing.T) {
@@ -95,4 +96,91 @@ bootstrap: {project: p}
 	for _, want := range []string{"bootstrap.base_environment", "bootstrap/ directory", `bundle "nope"`, `resource type "missing"`, `platform "ghost"`} {
 		assert.Contains(t, err.Error(), want)
 	}
+}
+
+func write(t *testing.T, path, body string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+}
+
+// sharedTree lays out a bundle repository with a catalog at examples/paas whose
+// platforms, resource types and bundles live at the repository root.
+func sharedTree(t *testing.T) (root, catalogDir string) {
+	t.Helper()
+	root = t.TempDir()
+	catalogDir = filepath.Join(root, "examples", "paas")
+	write(t, filepath.Join(catalogDir, "catalog.yaml"), `
+id: paas
+name: PaaS
+platforms: [aws-iam-role]
+resource_types: [aws-vpc]
+bundles: [vpc]
+paths:
+  platforms: ../../platforms
+  resource_types: ../../resource-types
+  bundles: `+filepath.Join(root, "bundles")+`
+bootstrap: {project: p, base_environment: main}
+`)
+	write(t, filepath.Join(catalogDir, "bootstrap", "main.tf"), "")
+	write(t, filepath.Join(root, "platforms", "aws-iam-role", "massdriver.yaml"), "name: aws-iam-role\nschema: {type: object}\n")
+	write(t, filepath.Join(root, "resource-types", "aws-vpc", "massdriver.yaml"), "name: aws-vpc\n")
+	write(t, filepath.Join(root, "bundles", "vpc", "massdriver.yaml"), "name: vpc\n")
+	return root, catalogDir
+}
+
+func TestLoadResolvesPathsOutsideTheCatalog(t *testing.T) {
+	root, dir := sharedTree(t)
+
+	c, err := catalog.Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, domain.CatalogPaths{
+		Platforms:     filepath.Join(root, "platforms"),
+		ResourceTypes: filepath.Join(root, "resource-types"),
+		Bundles:       filepath.Join(root, "bundles"),
+	}, c.Paths)
+	require.Len(t, c.Platforms, 1)
+	assert.Equal(t, "aws-iam-role", c.Platforms[0].ID)
+}
+
+func TestLoadDefaultsPathsToSubdirectories(t *testing.T) {
+	c, err := catalog.Load(filepath.Join("..", "..", "catalogs", "aws-serverless"))
+	require.NoError(t, err)
+	assert.Equal(t, domain.CatalogPaths{
+		Platforms:     filepath.Join(c.Dir, "platforms"),
+		ResourceTypes: filepath.Join(c.Dir, "resource-types"),
+		Bundles:       filepath.Join(c.Dir, "bundles"),
+	}, c.Paths)
+}
+
+func TestLoadRejectsPathsThatAreNotDirectories(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "catalog.yaml"), `
+id: c
+name: C
+paths: {bundles: ../nowhere, resource_types: catalog.yaml}
+bootstrap: {project: p, base_environment: main}
+`)
+	write(t, filepath.Join(dir, "bootstrap", "main.tf"), "")
+
+	_, err := catalog.Load(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "paths.bundles: "+filepath.Join(dir, "../nowhere")+" is not a directory")
+	assert.Contains(t, err.Error(), "paths.resource_types: "+filepath.Join(dir, "catalog.yaml")+" is not a directory")
+}
+
+func TestLoadAllReadsEveryDirAndRejectsDuplicateIDs(t *testing.T) {
+	_, dir := sharedTree(t)
+	shipped := filepath.Join("..", "..", "catalogs")
+
+	cats, err := catalog.LoadAll(shipped, filepath.Dir(dir))
+	require.NoError(t, err)
+	ids := make([]string, 0, len(cats))
+	for _, c := range cats {
+		ids = append(ids, c.ID)
+	}
+	assert.ElementsMatch(t, []string{"aws-serverless", "paas"}, ids)
+
+	_, err = catalog.LoadAll(shipped, filepath.Dir(dir), shipped)
+	require.ErrorContains(t, err, `catalog "aws-serverless" is in both`)
 }

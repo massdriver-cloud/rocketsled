@@ -69,17 +69,17 @@ func (i *Installer) Install(ctx context.Context, req domain.InstallRequest) (*do
 
 	say("publishing %s into %s", cat.Name, req.Credential.OrganizationID)
 	for _, p := range cat.Platforms {
-		if err := i.publishResourceType(ctx, env, out, filepath.Join(cat.Dir, "platforms", p.ID), p.ID); err != nil {
+		if err := i.publishResourceType(ctx, env, out, filepath.Join(cat.Paths.Platforms, p.ID), p.ID); err != nil {
 			return nil, err
 		}
 	}
 	for _, rt := range cat.ResourceTypes {
-		if err := i.publishResourceType(ctx, env, out, filepath.Join(cat.Dir, "resource-types", rt), rt); err != nil {
+		if err := i.publishResourceType(ctx, env, out, filepath.Join(cat.Paths.ResourceTypes, rt), rt); err != nil {
 			return nil, err
 		}
 	}
 	for _, b := range cat.Bundles {
-		if err := i.publishBundle(ctx, env, out, filepath.Join(cat.Dir, "bundles", b), b, req.Stable); err != nil {
+		if err := i.publishBundle(ctx, env, out, filepath.Join(cat.Paths.Bundles, b), b, req.Stable); err != nil {
 			return nil, err
 		}
 	}
