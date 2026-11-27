@@ -39,11 +39,15 @@ type Options struct {
 	DataDir string
 	// StableReleases publishes catalog bundles as stable releases.
 	StableReleases bool
-	RunAsync       func(func())
-	Logger         *slog.Logger
-	Now            func() time.Time
-	NewID          func() string
-	NewOrgID       func() string
+	// PaaS is the offer in tenant mode.
+	PaaS *PaaS
+	// Password enables password sign-in.
+	Password string
+	RunAsync func(func())
+	Logger   *slog.Logger
+	Now      func() time.Time
+	NewID    func() string
+	NewOrgID func() string
 }
 
 // Service implements Rocketsled's use cases.
@@ -63,6 +67,9 @@ type Service struct {
 	now        func() time.Time
 	newID      func() string
 	newOrgID   func() string
+	paas       *PaaS
+	password   string
+	offers     offerCache
 }
 
 // NewService validates options and builds a Service.
@@ -70,7 +77,7 @@ func NewService(o Options) (*Service, error) {
 	if o.Platforms == nil || o.Store == nil || o.Installer == nil {
 		return nil, errors.New("domain: Platforms, Store and Installer are required")
 	}
-	if len(o.SCMs) == 0 {
+	if len(o.SCMs) == 0 && o.Password == "" {
 		return nil, errors.New("domain: at least one sign-in provider is required")
 	}
 	switch o.Mode {
@@ -81,6 +88,10 @@ func NewService(o Options) (*Service, error) {
 	case AccountModeOrganization:
 		if o.OrgCreator.APIKey == "" {
 			return nil, errors.New("domain: organization mode needs an organization-creator credential")
+		}
+	case AccountModeTenant:
+		if o.SharedCredential.APIKey == "" || o.SharedCredential.OrganizationID == "" || o.PaaS == nil {
+			return nil, errors.New("domain: tenant mode needs a credential and a PaaS")
 		}
 	default:
 		return nil, fmt.Errorf("domain: unknown account mode %q", o.Mode)
@@ -101,6 +112,8 @@ func NewService(o Options) (*Service, error) {
 		now:        o.Now,
 		newID:      o.NewID,
 		newOrgID:   o.NewOrgID,
+		paas:       o.PaaS,
+		password:   o.Password,
 	}
 	for _, scm := range o.SCMs {
 		s.scms[scm.Provider()] = scm
@@ -139,6 +152,9 @@ func (s *Service) Providers() []Provider {
 	out := make([]Provider, 0, len(s.scms))
 	for p := range s.scms {
 		out = append(out, p)
+	}
+	if s.password != "" {
+		out = append(out, ProviderPassword)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
@@ -218,6 +234,9 @@ func (s *Service) CreateAccount(ctx context.Context, user *User, name string) (*
 	switch s.mode {
 	case AccountModeShared:
 		cred = s.shared
+	case AccountModeTenant:
+		cred = s.shared
+		account.Status = AccountStatusReady
 	case AccountModeOrganization:
 		var err error
 		cred, err = s.provisionOrganization(ctx)
@@ -636,6 +655,9 @@ type CreateEnvironmentInput struct {
 	Slug    string            `json:"slug"`
 	Name    string            `json:"name"`
 	Presets map[string]string `json:"presets"`
+	// Runtime and Addons apply in tenant mode.
+	Runtime string   `json:"runtime,omitempty"`
+	Addons  []string `json:"addons,omitempty"`
 }
 
 // CreateEnvironment forks the base environment, applies one preset per component,
@@ -643,6 +665,9 @@ type CreateEnvironmentInput struct {
 func (s *Service) CreateEnvironment(ctx context.Context, user *User, account *Account, in CreateEnvironmentInput) (*Environment, error) {
 	if account.Status != AccountStatusReady {
 		return nil, fmt.Errorf("%w: the account is %s", ErrConflict, account.Status)
+	}
+	if s.tenant() {
+		return s.createTenantEnvironment(ctx, user, account, in)
 	}
 	if !ValidSlug(in.Slug) {
 		return nil, Invalid("slug", "use 1-20 lowercase letters or digits")
@@ -860,6 +885,9 @@ func (s *Service) EnvironmentStatus(ctx context.Context, account *Account, id st
 		}
 		return nil, fmt.Errorf("load environment: %w", err)
 	}
+	if s.tenant() {
+		onlyPicked(env, live)
+	}
 	for i := range live.Instances {
 		live.Instances[i].Params = nil
 		if live.Instances[i].Resources == nil {
@@ -953,8 +981,10 @@ func (s *Service) DeployEnvironment(ctx context.Context, user *User, account *Ac
 	runCopy := *run
 	s.runAsync(func() {
 		bg := context.Background()
-		err := platform.DeployEnvironment(bg, envID)
-		if err != nil {
+		var err error
+		if s.tenant() {
+			err = s.redeployTenant(bg, platform, env, user)
+		} else if err = platform.DeployEnvironment(bg, envID); err != nil {
 			err = fmt.Errorf("deploy: %w", err)
 		}
 		s.finishRun(bg, &runCopy, envRecordID, err)

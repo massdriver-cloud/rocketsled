@@ -24,6 +24,8 @@ type Platform interface {
 	ForkEnvironment(ctx context.Context, req ForkRequest) (*PlatformEnvironment, error)
 	// CopyInstance deep-merges overrides onto the source's params and writes them to the destination.
 	CopyInstance(ctx context.Context, sourceID, destinationID string, overrides map[string]any) error
+	// DeployInstance provisions one instance with exactly these params.
+	DeployInstance(ctx context.Context, instanceID string, params map[string]any, message string) error
 	// DeployEnvironment provisions every instance in dependency order.
 	DeployEnvironment(ctx context.Context, environmentID string) error
 	// DecommissionEnvironment tears down every instance in reverse dependency order.

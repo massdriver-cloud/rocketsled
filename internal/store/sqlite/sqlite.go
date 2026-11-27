@@ -316,13 +316,19 @@ func (s *Store) GetBootstrapState(ctx context.Context, accountID string) ([]byte
 
 // --- environments ------------------------------------------------------------
 
-const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at`
+const environmentColumns = `id, account_id, slug, name, environment_id, presets, state, created_by, created_at, updated_at, runtime, addons`
 
 func scanEnvironment(row interface{ Scan(...any) error }) (*domain.Environment, error) {
 	var e domain.Environment
-	var presets, created, updated string
-	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated); err != nil {
+	var presets, created, updated, addons string
+	if err := row.Scan(&e.ID, &e.AccountID, &e.Slug, &e.Name, &e.EnvironmentID, &presets, &e.State, &e.CreatedBy, &created, &updated, &e.Runtime, &addons); err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal([]byte(addons), &e.Addons); err != nil {
+		return nil, fmt.Errorf("decode addons: %w", err)
+	}
+	if len(e.Addons) == 0 {
+		e.Addons = nil
 	}
 	e.Presets = map[string]string{}
 	if err := json.Unmarshal([]byte(presets), &e.Presets); err != nil {
@@ -338,8 +344,12 @@ func (s *Store) CreateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt))
+	addons, err := json.Marshal(orEmptyList(e.Addons))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO environments (`+environmentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AccountID, e.Slug, e.Name, e.EnvironmentID, string(presets), e.State, e.CreatedBy, fmtTime(e.CreatedAt), fmtTime(e.UpdatedAt), e.Runtime, string(addons))
 	if isUnique(err) {
 		return fmt.Errorf("%w: environment %s", domain.ErrConflict, e.Slug)
 	}
@@ -442,4 +452,11 @@ func (s *Store) ListRuns(ctx context.Context, environmentID string, limit int) (
 		out = append(out, *r)
 	}
 	return out, rows.Err()
+}
+
+func orEmptyList(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

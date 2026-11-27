@@ -460,3 +460,27 @@ func (c *Client) Ping(ctx context.Context) (string, error) {
 	}
 	return out.Organization.Name, nil
 }
+
+const createDeploymentMutation = `
+mutation RocketsledDeployInstance($organizationId: ID!, $id: ID!, $input: CreateDeploymentInput!) {
+  createDeployment(organizationId: $organizationId, id: $id, input: $input) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`
+
+// DeployInstance provisions one instance with exactly these params.
+func (c *Client) DeployInstance(ctx context.Context, instanceID string, params map[string]any, message string) error {
+	var out struct {
+		CreateDeployment payload[struct{ ID string }] `json:"createDeployment"`
+	}
+	vars := map[string]any{
+		"id":    instanceID,
+		"input": map[string]any{"action": "PROVISION", "message": message, "params": mapArg(params)},
+	}
+	if err := c.do(ctx, createDeploymentMutation, vars, &out); err != nil {
+		return err
+	}
+	return out.CreateDeployment.check("createDeployment")
+}

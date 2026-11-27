@@ -18,6 +18,8 @@ const (
 	ProviderGitLab Provider = "gitlab"
 	// ProviderDev is a local sign-in stub with no OAuth application behind it.
 	ProviderDev Provider = "dev"
+	// ProviderPassword signs in anyone with the server's shared password.
+	ProviderPassword Provider = "password"
 )
 
 // User is someone who signed in.
@@ -133,10 +135,13 @@ type Environment struct {
 	Name          string            `json:"name"`
 	EnvironmentID string            `json:"environmentId"`
 	Presets       map[string]string `json:"presets"`
-	State         EnvironmentState  `json:"state"`
-	CreatedBy     string            `json:"createdBy"`
-	CreatedAt     time.Time         `json:"createdAt"`
-	UpdatedAt     time.Time         `json:"updatedAt"`
+	// Runtime and Addons are what a tenant-mode customer picked.
+	Runtime   string           `json:"runtime,omitempty"`
+	Addons    []string         `json:"addons,omitempty"`
+	State     EnvironmentState `json:"state"`
+	CreatedBy string           `json:"createdBy"`
+	CreatedAt time.Time        `json:"createdAt"`
+	UpdatedAt time.Time        `json:"updatedAt"`
 }
 
 // RunTrigger records what caused a run.

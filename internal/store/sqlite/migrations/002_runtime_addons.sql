@@ -1,0 +1,2 @@
+ALTER TABLE environments ADD COLUMN runtime TEXT NOT NULL DEFAULT '';
+ALTER TABLE environments ADD COLUMN addons TEXT NOT NULL DEFAULT '[]';
