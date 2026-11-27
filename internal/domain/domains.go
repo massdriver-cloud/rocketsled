@@ -146,16 +146,14 @@ func (s *Service) SetDomains(ctx context.Context, user *User, account *Account, 
 		return nil, err
 	}
 	previous := env.Domains
-	env.Domains = nil
-	if len(hosts) > 0 {
-		env.Domains = &DomainSetting{Hosts: hosts, List: list}
+	if previous == nil {
+		// Rolling back to "none" must still empty the param the failed deploy wrote.
+		previous = &DomainSetting{List: list}
 	}
+	env.Domains = &DomainSetting{Hosts: hosts, List: list}
 
 	rt := s.runtimeConfig(env.Runtime)
 	params := s.componentParams(env, rt, d.Component, pi.Params)
-	if _, pinned := s.pinnedFor(rt, d.Component, appVars(env, rt))[d.Param]; env.Domains == nil && !pinned {
-		params[d.Param] = (&DomainSetting{List: list}).value()
-	}
 	summary := "Domains removed"
 	if len(hosts) > 0 {
 		summary = "Domains: " + strings.Join(hosts, ", ")

@@ -185,7 +185,11 @@ func (s *Service) pinnedFor(rt Runtime, slug string, vars map[string]string) map
 func (s *Service) fixedParams(rt Runtime, env *Environment, slug string, vars map[string]string) map[string]any {
 	out := s.pinnedFor(rt, slug, vars)
 	if d := s.paas.Domains; d != nil && env != nil && env.Domains != nil && slug == d.Component {
-		out[d.Param] = env.Domains.value()
+		// No domains means the operator's pinned value, when there is one;
+		// otherwise the param is emptied so a domain once set can't linger.
+		if _, pinned := out[d.Param]; len(env.Domains.Hosts) > 0 || !pinned {
+			out[d.Param] = env.Domains.value()
+		}
 	}
 	return out
 }

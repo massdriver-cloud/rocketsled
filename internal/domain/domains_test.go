@@ -206,4 +206,23 @@ func TestDomainsAreNotSharedAndARejectedOneIsDropped(t *testing.T) {
 	stored, err := h.store.GetEnvironment(ctx, first.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"www.example.com"}, stored.Domains.Hosts, "the domain the deploy failed with is not kept")
+
+	_, err = h.svc.SetDomains(ctx, h.user, h.account, second.ID, domain.DomainsInput{Domains: []string{"rejected.example.com"}})
+	require.NoError(t, err)
+	h.platform.DeployInstanceFunc = func(_ context.Context, id string, params map[string]any, _ string) error {
+		h.world.set(id, "FAILED", params)
+		return nil
+	}
+	_, err = h.svc.SetDomains(ctx, h.user, h.account, second.ID, domain.DomainsInput{Domains: []string{"also-rejected.example.com"}})
+	require.NoError(t, err)
+	h.platform.DeployInstanceFunc = deploy
+	_, err = h.svc.DeployEnvironment(ctx, h.user, h.account, second.ID)
+	require.NoError(t, err)
+	var web map[string]any
+	for _, c := range h.platform.DeployInstanceCalls() {
+		if c.InstanceID == "ruby-other-web" {
+			web = c.Params
+		}
+	}
+	assert.Equal(t, "rejected.example.com", web["subdomain"], "a redeploy after a rejected change sends the last good domain, not the rejected one")
 }
