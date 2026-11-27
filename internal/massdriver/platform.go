@@ -118,7 +118,7 @@ const environmentFields = `
       id name status params paramsSchema resolvedVersion deployedVersion
       component { id name }
       bundle { name }
-      resources { field resource { id name payload resourceType { id } } }
+      resources { field resource { id name payload resourceType { id schema uiSchema } } }
     }
     unfulfilledDependencies { instance { id } field resourceType { id } }`
 
@@ -156,7 +156,9 @@ type gqlEnvironment struct {
 				Name         string         `json:"name"`
 				Payload      map[string]any `json:"payload"`
 				ResourceType struct {
-					ID string `json:"id"`
+					ID       string          `json:"id"`
+					Schema   json.RawMessage `json:"schema"`
+					UISchema json.RawMessage `json:"uiSchema"`
 				} `json:"resourceType"`
 			} `json:"resource"`
 		} `json:"resources"`
@@ -215,6 +217,7 @@ func toEnvironment(e *gqlEnvironment) *domain.PlatformEnvironment {
 			}
 			pi.Resources = append(pi.Resources, domain.InstanceResource{
 				Field: r.Field, Name: r.Resource.Name, ResourceType: r.Resource.ResourceType.ID, Payload: r.Resource.Payload,
+				Fields: schemaFields(r.Resource.ResourceType.Schema, r.Resource.ResourceType.UISchema),
 			})
 		}
 		env.Instances = append(env.Instances, pi)

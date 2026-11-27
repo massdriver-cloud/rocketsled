@@ -42,7 +42,10 @@ no cloud account. With `massdriver.account_mode: tenant`:
   deploy into each app, except `paas.addons`, which deploy only when picked.
 - `paas.pinned` (and `runtimes[].pinned`) set params over every preset;
   `{{environment_id}}`, `{{app}}` and `{{runtime}}` are filled in.
-- `paas.plans` and `paas.highlights` label preset cards and pick what the app page shows.
+- `paas.plans` labels preset cards with a price and a sentence.
+- `paas.highlights` lists, per resource type, the payload fields the app page shows
+  and their order (`website: [url]`). Other types show their first five fields in
+  schema order. Values starting with `https://` are links.
 - `paas.limits` caps apps per person and in total, restricts presets and add-ons,
   and removes apps after a `ttl`.
 - `auth.providers.open: {}` lets anyone sign up with a name. An `invite_code` gates it.

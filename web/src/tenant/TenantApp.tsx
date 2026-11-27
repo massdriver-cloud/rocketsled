@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, timeAgo } from "../api";
 import type { Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin } from "../types";
-import { Loading, Notice } from "../components/ui";
+import { Highlights, Loading, Notice } from "../components/ui";
 import "./tenant.css";
 
 const defaultCopy: Record<string, string> = {
@@ -518,13 +518,6 @@ function appLinks(instances: PlatformInstance[]): string[] {
   return out;
 }
 
-function highlightsFor(offer: Offer | undefined, resourceType: string, payload: Record<string, unknown>): [string, string][] {
-  const keys = offer?.highlights[resourceType.replace(/@.*/, "")];
-  const entries = Object.entries(payload ?? {}).filter(([k, v]) => ["string", "number", "boolean"].includes(typeof v) && !/secret|password|token|key/i.test(k));
-  const picked = keys ? entries.filter(([k]) => keys.includes(k)) : entries.slice(0, 3);
-  return picked.map(([k, v]) => [k, String(v)]);
-}
-
 const instanceStatus: Record<string, string> = {
   PROVISIONED: "running",
   FAILED: "failed",
@@ -673,16 +666,7 @@ function AppPage() {
                     <State state={instanceStatus[pi.status] ?? "deploying"} />
                   </td>
                   <td>
-                    <dl className="kv small">
-                      {pi.resources.flatMap((r) =>
-                        highlightsFor(offer, r.resourceType, r.payload).map(([k, v]) => [
-                          <dt key={`${r.field}-${k}-k`}>{k}</dt>,
-                          <dd key={`${r.field}-${k}-v`} className="mono">
-                            {v}
-                          </dd>,
-                        ]),
-                      )}
-                    </dl>
+                    <Highlights resources={pi.resources} />
                   </td>
                 </tr>
               ))}

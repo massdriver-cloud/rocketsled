@@ -34,3 +34,10 @@ bootstrap:
   # The component whose image follows the customer's application.
   app_component: app
   image_param: image_uri
+
+# The fields the environment page shows for each resource type, in this order.
+# Types not listed show their first few fields in schema order.
+highlights:
+  aws-http-api: [endpoint, region]
+  aws-dynamodb-table: [name, region]
+  aws-vpc: [id, cidr, region]

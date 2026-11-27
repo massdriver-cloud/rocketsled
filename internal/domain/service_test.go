@@ -36,8 +36,9 @@ func awsCatalog() domain.Catalog {
 			Instructions: []domain.Instruction{{Label: "AWS Console", Markdown: "Audience `massdriver:ORG_ID` on {{issuer}}."}},
 		}},
 		ResourceTypes: []string{"aws-vpc"}, Bundles: []string{"shared-vpc", "http-api"},
-		Bootstrap: domain.Bootstrap{Project: "serverless", BaseEnvironment: "production"},
-		Dir:       "/catalogs/aws-serverless",
+		Bootstrap:  domain.Bootstrap{Project: "serverless", BaseEnvironment: "production"},
+		Highlights: map[string][]string{"aws-http-api": {"region", "endpoint"}},
+		Dir:        "/catalogs/aws-serverless",
 	}
 }
 
@@ -459,6 +460,7 @@ func TestEnvironmentStatusRefreshesAndHidesParams(t *testing.T) {
 	h.platform.GetEnvironmentFunc = func(_ context.Context, id string) (*domain.PlatformEnvironment, error) {
 		e := liveEnv(id, "PROVISIONED")
 		e.Instances[0].Params = map[string]any{"secret": "x"}
+		e.Instances[0].Resources[0].ResourceType = "aws-http-api@1.2.3"
 		return e, nil
 	}
 
@@ -468,6 +470,8 @@ func TestEnvironmentStatusRefreshesAndHidesParams(t *testing.T) {
 	assert.Equal(t, domain.RunStatusSucceeded, view.Runs[0].Status)
 	assert.Nil(t, view.Platform.Instances[0].Params)
 	assert.Equal(t, "https://abc.execute-api.us-east-1.amazonaws.com", view.Platform.Instances[0].Resources[0].Payload["endpoint"])
+	assert.Equal(t, []domain.Highlight{{Field: "endpoint", Title: "Endpoint", Value: "https://abc.execute-api.us-east-1.amazonaws.com"}},
+		view.Platform.Instances[0].Resources[0].Highlights, "the catalog's highlights apply to the type whatever its version")
 
 	other := &domain.User{ID: "dev:mallory", Provider: domain.ProviderDev, Login: "mallory"}
 	require.NoError(t, h.store.UpsertUser(context.Background(), other))

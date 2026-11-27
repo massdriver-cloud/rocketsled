@@ -1,5 +1,6 @@
 import { marked } from "marked";
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
+import type { InstanceResource } from "../types";
 
 type Tone = "ok" | "warn" | "bad" | "neutral";
 
@@ -70,5 +71,28 @@ export function Steps({ current, first = "Choose a platform" }: { current: 1 | 2
         );
       })}
     </nav>
+  );
+}
+
+export function Highlights({ resources }: { resources: InstanceResource[] }) {
+  const rows = resources.flatMap((r) => (r.highlights ?? []).map((h) => ({ key: `${r.field}.${h.field}`, ...h })));
+  if (rows.length === 0) return <span className="muted">—</span>;
+  return (
+    <dl className="kv small">
+      {rows.map((h) => (
+        <Fragment key={h.key}>
+          <dt>{h.title}</dt>
+          <dd className="mono">
+            {h.value.startsWith("https://") ? (
+              <a href={h.value} target="_blank" rel="noreferrer">
+                {h.value}
+              </a>
+            ) : (
+              h.value
+            )}
+          </dd>
+        </Fragment>
+      ))}
+    </dl>
   );
 }

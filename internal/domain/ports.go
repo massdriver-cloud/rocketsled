@@ -127,6 +127,9 @@ type InstanceResource struct {
 	Name         string         `json:"name"`
 	ResourceType string         `json:"resourceType"`
 	Payload      map[string]any `json:"payload"`
+	Highlights   []Highlight    `json:"highlights"`
+	// Fields are the resource type's top-level properties in the order its schema gives.
+	Fields []SchemaField `json:"-"`
 }
 
 // Presets extracts the bundle's params.examples from the instance's schema.

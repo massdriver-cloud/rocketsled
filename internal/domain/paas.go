@@ -65,9 +65,8 @@ type Plan struct {
 
 // Offer is everything a customer can pick from.
 type Offer struct {
-	Runtimes   []RuntimeOffer      `json:"runtimes"`
-	Highlights map[string][]string `json:"highlights"`
-	Limits     Limits              `json:"limits"`
+	Runtimes []RuntimeOffer `json:"runtimes"`
+	Limits   Limits         `json:"limits"`
 }
 
 // RuntimeOffer is a runtime with the components every app of it gets and the
@@ -123,10 +122,7 @@ func (s *Service) Offer(ctx context.Context) (*Offer, error) {
 	platform := s.platforms(s.shared)
 	limits := s.paas.Limits
 	limits.TTLHours = limits.TTL.Hours()
-	offer := &Offer{Runtimes: []RuntimeOffer{}, Highlights: s.paas.Highlights, Limits: limits}
-	if offer.Highlights == nil {
-		offer.Highlights = map[string][]string{}
-	}
+	offer := &Offer{Runtimes: []RuntimeOffer{}, Limits: limits}
 	for _, rt := range s.paas.Runtimes {
 		ro, err := s.runtimeOffer(ctx, platform, rt)
 		if err != nil {

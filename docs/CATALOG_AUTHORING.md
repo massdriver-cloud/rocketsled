@@ -63,6 +63,10 @@ bootstrap:
   base_environment: production  # the key in bootstrap's `environments` output
   app_component: app          # component whose image follows the customer's app
   image_param: image_uri      # the param on that component that takes the image
+
+highlights:                   # optional: payload fields the environment page shows
+  aws-http-api: [endpoint, region]   # resource type -> fields, in display order
+  aws-vpc: [id, cidr, region]
 ```
 
 ### Platforms, resource types and bundles that live elsewhere
@@ -187,10 +191,14 @@ only what a bundle in the catalog produces or depends on. A resource type that
 nothing produces is fine when it lets an optional dependency resolve (the reference
 catalog ships `aws-user-pool` for that reason) but say so in the README.
 
-Resource schemas are what the environment page shows as "resource highlights", so
+The environment page shows a few "resource highlights" from each resource's
+payload. `catalog.yaml`'s `highlights` picks the fields and their order per resource
+type. A type it doesn't list shows its first five top-level scalar fields in the
+order of its schema's `ui:order`, else its `properties`. Either way each field is
+labeled with its schema `title`, and values starting with `https://` are links. So
 put the values a developer wants to copy (endpoint, hostname, table name) at the
-top level with clear titles. Keys that look like secrets (`password`, `secret`,
-`token`, `key`) are hidden on that page.
+top level, first, with clear titles. Keys that look like secrets (`password`,
+`secret`, `token`, `key`) are never shown.
 
 ## bundles/
 
