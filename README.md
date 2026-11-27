@@ -28,6 +28,30 @@ take over whenever they outgrow the simple view.
    credentials, and deploys. The environment page shows each component's status and the
    addresses and names its resources expose.
 
+## Tenant mode
+
+A PaaS operator runs Rocketsled as a branded website over templates that already
+exist in their own Massdriver organization. Nothing is installed and customers bring
+no cloud account. With `massdriver.account_mode: tenant`:
+
+- `skin` names a directory with `skin.json` (name, tagline, logo, layout, design
+  tokens, copy) and optional CSS. The whole UI wears it.
+- `paas.runtimes` lists template environments (`project`, `template`). A customer
+  picks one, and the server forks it with the template's defaults.
+- Components already deployed in the template are shared by every app. The rest
+  deploy into each app, except `paas.addons`, which deploy only when picked.
+- `paas.pinned` (and `runtimes[].pinned`) set params over every preset;
+  `{{environment_id}}`, `{{app}}` and `{{runtime}}` are filled in.
+- `paas.plans` and `paas.highlights` label preset cards and pick what the app page shows.
+- `paas.limits` caps apps per person and in total, restricts presets and add-ons,
+  and removes apps after a `ttl`.
+- `auth.providers.open: {}` lets anyone sign up with a name. An `invite_code` gates it.
+
+Each app's owner and picks are written on its Massdriver environment, so a server
+that loses its database still shows people their apps and finishes creates it was
+interrupted in. See [massdriver-catalogs/aws examples/rocketsled](https://github.com/massdriver-catalogs/aws/tree/main/examples/rocketsled)
+for two PaaSes built this way.
+
 ## Run it
 
 ```sh
