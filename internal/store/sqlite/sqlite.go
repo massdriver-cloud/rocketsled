@@ -386,8 +386,12 @@ func (s *Store) UpdateEnvironment(ctx context.Context, e *domain.Environment) er
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ? WHERE id = ?`,
-		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.ID)
+	addons, err := json.Marshal(orEmptyList(e.Addons))
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE environments SET name = ?, environment_id = ?, presets = ?, state = ?, updated_at = ?, runtime = ?, addons = ? WHERE id = ?`,
+		e.Name, e.EnvironmentID, string(presets), e.State, fmtTime(e.UpdatedAt), e.Runtime, string(addons), e.ID)
 	if err != nil {
 		return err
 	}

@@ -27,6 +27,10 @@ type Platform interface {
 	CopyInstance(ctx context.Context, sourceID, destinationID string, overrides map[string]any) error
 	// DeployInstance provisions one instance with exactly these params.
 	DeployInstance(ctx context.Context, instanceID string, params map[string]any, message string) error
+	// DecommissionInstance tears down one instance's infrastructure.
+	DecommissionInstance(ctx context.Context, instanceID string, params map[string]any, message string) error
+	// SetEnvironmentDescription replaces an environment's description.
+	SetEnvironmentDescription(ctx context.Context, environmentID, description string) error
 	// DeployEnvironment provisions every instance in dependency order.
 	DeployEnvironment(ctx context.Context, environmentID string) error
 	// DecommissionEnvironment tears down every instance in reverse dependency order.
@@ -94,6 +98,7 @@ type EnvironmentSummary struct {
 type PlatformEnvironment struct {
 	ID          string                  `json:"id"`
 	Name        string                  `json:"name"`
+	Description string                  `json:"-"`
 	ProjectID   string                  `json:"projectId"`
 	Instances   []PlatformInstance      `json:"instances"`
 	Unfulfilled []UnfulfilledDependency `json:"unfulfilled"`

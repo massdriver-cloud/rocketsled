@@ -131,6 +131,15 @@ func TestMutationsSendInputsAndSurfaceValidation(t *testing.T) {
 	c, last, _ = server(t, `{"data":{"deployEnvironment":{"successful":true,"result":{"id":"serverless-dev"}}}}`, 200)
 	require.NoError(t, c.DeployEnvironment(context.Background(), "serverless-dev"))
 	assert.Equal(t, "serverless-dev", last.Variables["id"])
+
+	c, last, _ = server(t, `{"data":{"createDeployment":{"successful":true,"result":{"id":"dep"}}}}`, 200)
+	require.NoError(t, c.DecommissionInstance(context.Background(), "ruby-hello-db", map[string]any{"size": "small"}, "Removed by ada"))
+	assert.Equal(t, "ruby-hello-db", last.Variables["id"])
+	assert.Equal(t, map[string]any{"action": "DECOMMISSION", "message": "Removed by ada", "params": `{"size":"small"}`}, last.Variables["input"])
+
+	c, last, _ = server(t, `{"data":{"updateEnvironment":{"successful":true,"result":{"id":"ruby-hello"}}}}`, 200)
+	require.NoError(t, c.SetEnvironmentDescription(context.Background(), "ruby-hello", "Made in Rocketsled"))
+	assert.Equal(t, map[string]any{"description": "Made in Rocketsled"}, last.Variables["input"])
 }
 
 func TestCopyInstanceEncodesOverridesAsJSONString(t *testing.T) {

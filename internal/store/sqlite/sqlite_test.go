@@ -76,6 +76,13 @@ func TestEnvironmentsAndRuns(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, *e, list[0])
 
+	e.Presets["db"] = "Development"
+	e.Runtime, e.Addons = "ruby", []string{"db"}
+	require.NoError(t, s.UpdateEnvironment(ctx, e))
+	got, err := s.GetEnvironment(ctx, "env1")
+	require.NoError(t, err)
+	assert.Equal(t, *e, *got, "every mutable field is saved")
+
 	for n := 1; n <= 3; n++ {
 		require.NoError(t, s.CreateRun(ctx, &domain.Run{ID: "r" + string(rune('0'+n)), EnvironmentID: "env1", Number: n, Trigger: domain.TriggerDeploy, Status: domain.RunStatusRunning, CreatedAt: at, UpdatedAt: at}))
 	}

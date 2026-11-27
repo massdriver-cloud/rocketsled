@@ -190,6 +190,21 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 	return ro, nil
 }
 
+// presetParams are a component's params for a preset, without its label.
+func (ro *RuntimeOffer) presetParams(slug, preset string) map[string]any {
+	for _, c := range append(append([]OfferedComponent{}, ro.Components...), ro.Addons...) {
+		if c.Slug != slug {
+			continue
+		}
+		for _, p := range c.Presets {
+			if p.Name == preset {
+				return MergeParams(map[string]any{}, p.Params)
+			}
+		}
+	}
+	return map[string]any{}
+}
+
 func (o *Offer) runtime(id string) (*RuntimeOffer, bool) {
 	for i := range o.Runtimes {
 		if o.Runtimes[i].ID == id {
@@ -298,14 +313,15 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		return nil, err
 	}
 
-	vars := map[string]string{"environment_id": forked.ID, "app": in.Slug, "runtime": rt.ID}
+	vars := appVars(env, rt)
 	params := map[string]map[string]any{}
 	for _, c := range picked {
-		pinned := MergeParams(renderPinned(s.paas.Pinned[c.Slug], vars), renderPinned(rt.Pinned[c.Slug], vars))
-		params[c.Slug] = MergeParams(MergeParams(map[string]any{}, presets[c.Slug].Params), pinned)
+		params[c.Slug] = MergeParams(MergeParams(map[string]any{}, presets[c.Slug].Params), s.pinnedFor(rt, c.Slug, vars))
 	}
 	links, envRecordID, runCopy := ro.links, env.ID, *run
+	s.claim(envRecordID)
 	s.runAsync(func() {
+		defer s.release(envRecordID)
 		bg := context.Background()
 		err := s.deployInLayers(bg, platform, forked.ID, params, links, "Created by "+user.Login)
 		s.finishRun(bg, &runCopy, envRecordID, err)
@@ -321,20 +337,28 @@ func (s *Service) redeployTenant(ctx context.Context, platform Platform, env *En
 		return err
 	}
 	rt := s.runtimeConfig(env.Runtime)
-	vars := map[string]string{"environment_id": env.EnvironmentID, "app": env.Slug, "runtime": rt.ID}
+	vars := appVars(env, rt)
 	params := map[string]map[string]any{}
+	var ro *RuntimeOffer
+	if offer, err := s.Offer(ctx); err == nil {
+		ro, _ = offer.runtime(env.Runtime)
+	}
 	for _, pi := range live.Instances {
-		if _, ok := env.Presets[pi.ComponentSlug]; ok {
-			// Pinned params win again, so a redeploy picks up what the operator changed.
-			pinned := MergeParams(renderPinned(s.paas.Pinned[pi.ComponentSlug], vars), renderPinned(rt.Pinned[pi.ComponentSlug], vars))
-			params[pi.ComponentSlug] = MergeParams(pi.Params, pinned)
+		preset, ok := env.Presets[pi.ComponentSlug]
+		if !ok {
+			continue
 		}
+		current := pi.Params
+		if len(current) == 0 && ro != nil {
+			// A component whose first deploy never went through has no params yet.
+			current = ro.presetParams(pi.ComponentSlug, preset)
+		}
+		// Pinned params win again, so a redeploy picks up what the operator changed.
+		params[pi.ComponentSlug] = MergeParams(current, s.pinnedFor(rt, pi.ComponentSlug, vars))
 	}
 	var links []Link
-	if offer, err := s.Offer(ctx); err == nil {
-		if ro, ok := offer.runtime(env.Runtime); ok {
-			links = ro.links
-		}
+	if ro != nil {
+		links = ro.links
 	}
 	return s.deployInLayers(ctx, platform, env.EnvironmentID, params, links, "Redeployed by "+user.Login)
 }
@@ -396,6 +420,11 @@ func (s *Service) deployLayers(ctx context.Context, platform Platform, envID str
 }
 
 func (s *Service) waitProvisioned(ctx context.Context, platform Platform, envID string, slugs []string) error {
+	return s.waitFor(ctx, platform, envID, slugs, "PROVISIONED", "deploying")
+}
+
+// waitFor polls until every instance of slugs reaches want. FAILED ends the wait.
+func (s *Service) waitFor(ctx context.Context, platform Platform, envID string, slugs []string, want, doing string) error {
 	deadline := time.Now().Add(deployTimeout)
 	for {
 		live, err := platform.GetEnvironment(ctx, envID)
@@ -405,10 +434,10 @@ func (s *Service) waitProvisioned(ctx context.Context, platform Platform, envID 
 				if !slices.Contains(slugs, pi.ComponentSlug) {
 					continue
 				}
-				switch strings.ToUpper(pi.Status) {
-				case "PROVISIONED":
+				switch status := strings.ToUpper(pi.Status); status {
+				case want:
 				case "FAILED":
-					return fmt.Errorf("%s failed to deploy", pi.ComponentName)
+					return fmt.Errorf("%s failed while %s", pi.ComponentName, doing)
 				default:
 					done = false
 				}
@@ -418,7 +447,7 @@ func (s *Service) waitProvisioned(ctx context.Context, platform Platform, envID 
 			}
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("still deploying %s after %s", strings.Join(slugs, ", "), deployTimeout)
+			return fmt.Errorf("still %s %s after %s", doing, strings.Join(slugs, ", "), deployTimeout)
 		}
 		select {
 		case <-ctx.Done():
@@ -503,12 +532,7 @@ func onlyPicked(env *Environment, live *PlatformEnvironment) {
 var ownerPattern = regexp.MustCompile(`\[owner ([^\]\s]+)\]$`)
 
 func ownerMarker(login, userID string, picks map[string]string) string {
-	parts := make([]string, 0, len(picks))
-	for slug, preset := range picks {
-		parts = append(parts, slug+"="+preset)
-	}
-	slices.Sort(parts)
-	return fmt.Sprintf("Made in Rocketsled for %s [deploy %s] [owner %s]", login, strings.Join(parts, ","), userID)
+	return fmt.Sprintf("Made in Rocketsled for %s %s [owner %s]", login, picksMarker(picks), userID)
 }
 
 var picksPattern = regexp.MustCompile(`\[deploy ([^\]]*)\]`)
@@ -589,12 +613,15 @@ func (s *Service) ResumeInterrupted(ctx context.Context) {
 					preset = p
 				}
 			}
-			pinned := MergeParams(renderPinned(s.paas.Pinned[c.Slug], vars), renderPinned(rt.Pinned[c.Slug], vars))
-			params[c.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), pinned)
+			params[c.Slug] = MergeParams(MergeParams(map[string]any{}, preset.Params), s.pinnedFor(rt, c.Slug, vars))
 		}
 		envID, links := e.ID, ro.links
+		if !s.claim(envID) {
+			continue
+		}
 		s.log.Info("resume: finishing an interrupted app", "environment", envID, "components", len(params))
 		s.runAsync(func() {
+			defer s.release(envID)
 			if err := s.deployLayers(context.Background(), platform, envID, params, links, "Resumed after a restart", true); err != nil {
 				s.log.Warn("resume", "environment", envID, "err", err)
 			}
@@ -708,14 +735,23 @@ func (s *Service) syncTenant(ctx context.Context, account *Account) error {
 				}
 			}
 		}
-		for _, pi := range pe.Instances {
-			if !tmpl[pi.ComponentSlug] || strings.EqualFold(pi.Status, "INITIALIZED") {
-				continue
+		if picks := picksOf(summary.Description); len(picks) > 0 {
+			env.Presets = picks
+			for _, a := range s.paas.Addons {
+				if _, ok := picks[a.ID]; ok {
+					env.Addons = append(env.Addons, a.ID)
+				}
 			}
-			name, _ := pi.Params[PresetNameKey].(string)
-			env.Presets[pi.ComponentSlug] = name
-			if addons[pi.ComponentSlug] {
-				env.Addons = append(env.Addons, pi.ComponentSlug)
+		} else {
+			for _, pi := range pe.Instances {
+				if !tmpl[pi.ComponentSlug] || strings.EqualFold(pi.Status, "INITIALIZED") || strings.EqualFold(pi.Status, "DECOMMISSIONED") {
+					continue
+				}
+				name, _ := pi.Params[PresetNameKey].(string)
+				env.Presets[pi.ComponentSlug] = name
+				if addons[pi.ComponentSlug] {
+					env.Addons = append(env.Addons, pi.ComponentSlug)
+				}
 			}
 		}
 		if err := s.store.CreateEnvironment(ctx, env); err != nil {

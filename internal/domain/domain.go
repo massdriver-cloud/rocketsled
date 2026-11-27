@@ -163,6 +163,8 @@ type RunTrigger string
 const (
 	TriggerCreate RunTrigger = "create"
 	TriggerDeploy RunTrigger = "deploy"
+	// TriggerAddon adds or removes an add-on; the run's message says which.
+	TriggerAddon RunTrigger = "addon"
 )
 
 // RunStatus is Rocketsled's record of a deploy request.
@@ -182,10 +184,11 @@ type Run struct {
 	Number        int        `json:"number"`
 	Trigger       RunTrigger `json:"trigger"`
 	Status        RunStatus  `json:"status"`
-	Message       string     `json:"message,omitempty"`
-	RequestedBy   string     `json:"requestedBy,omitempty"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	// Message says what the run does, or why it failed.
+	Message     string    `json:"message,omitempty"`
+	RequestedBy string    `json:"requestedBy,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // Sentinel errors. Handlers map these to HTTP statuses.

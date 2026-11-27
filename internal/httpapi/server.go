@@ -93,6 +93,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/environments/{id}", s.account(s.handleGetEnvironment))
 	m.HandleFunc("DELETE /api/v1/environments/{id}", s.account(s.handleDestroyEnvironment))
 	m.HandleFunc("POST /api/v1/environments/{id}/deploys", s.account(s.handleDeployEnvironment))
+	m.HandleFunc("POST /api/v1/environments/{id}/addons", s.account(s.handleAddAddon))
+	m.HandleFunc("DELETE /api/v1/environments/{id}/addons/{component}", s.account(s.handleRemoveAddon))
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint", "")
 	})
@@ -478,6 +480,29 @@ func (s *Server) handleDestroyEnvironment(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleDeployEnvironment(w http.ResponseWriter, r *http.Request) {
 	run, err := s.svc.DeployEnvironment(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handleAddAddon(w http.ResponseWriter, r *http.Request) {
+	var in domain.AddonInput
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	run, err := s.svc.AddAddon(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"), in)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handleRemoveAddon(w http.ResponseWriter, r *http.Request) {
+	run, err := s.svc.RemoveAddon(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"), r.PathValue("component"))
 	if err != nil {
 		s.writeDomainError(w, err)
 		return

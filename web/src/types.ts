@@ -127,7 +127,7 @@ export type RunStatus = "queued" | "running" | "succeeded" | "failed";
 export interface Run {
   id: string;
   number: number;
-  trigger: "create" | "deploy";
+  trigger: "create" | "deploy" | "addon";
   status: RunStatus;
   message?: string;
   createdAt: string;

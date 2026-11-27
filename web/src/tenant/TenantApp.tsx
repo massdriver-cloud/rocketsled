@@ -488,6 +488,84 @@ function NewApp() {
   );
 }
 
+function AddonsSection({
+  app,
+  addons,
+  disabled,
+  onChange,
+}: {
+  app: Environment;
+  addons: OfferedComponent[];
+  disabled: boolean;
+  onChange: (fn: () => Promise<unknown>) => void;
+}) {
+  const { copy } = useSkin();
+  const [presets, setPresets] = useState<Record<string, string>>({});
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState("");
+
+  return (
+    <div className="section">
+      <div className="section__title">
+        <h2>{copy("addons")}</h2>
+      </div>
+      <div className="card card__body t-addons">
+        {addons.map((a) => {
+          const on = app.addons?.includes(a.slug) ?? false;
+          const preset = presets[a.slug] ?? a.presets[0]?.name ?? "";
+          return (
+            <div key={a.slug} className={`t-addon ${on ? "t-addon--on" : ""}`}>
+              <div className="t-addon__row">
+                <span>
+                  <b>{a.name}</b>
+                  {a.summary && <span className="t-preset__summary">{a.summary}</span>}
+                </span>
+                {on ? (
+                  <button
+                    className="btn btn--danger"
+                    disabled={disabled}
+                    onClick={() => {
+                      setRemoving(removing === a.slug ? null : a.slug);
+                      setConfirm("");
+                    }}
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <button className="btn" disabled={disabled} onClick={() => onChange(() => api.addAddon(app.id, a.slug, preset))}>
+                    Add
+                  </button>
+                )}
+              </div>
+              {!on && a.presets.length > 1 && <PresetPicker component={a} value={preset} onChange={(v) => setPresets({ ...presets, [a.slug]: v })} />}
+              {on && removing === a.slug && (
+                <form
+                  className="t-addon__confirm"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setRemoving(null);
+                    onChange(() => api.removeAddon(app.id, a.slug));
+                  }}
+                >
+                  <label className="field">
+                    <span className="hint">
+                      Removing {a.name} deletes its data. Type <b>{a.name}</b> to confirm.
+                    </span>
+                    <input value={confirm} onChange={(e) => setConfirm(e.target.value)} autoFocus aria-label={`Type ${a.name} to confirm`} />
+                  </label>
+                  <button className="btn btn--danger" disabled={disabled || confirm !== a.name}>
+                    Remove {a.name}
+                  </button>
+                </form>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function LimitsNote({ offer }: { offer: Offer }) {
   const { copy } = useSkin();
   const parts: string[] = [];
@@ -581,6 +659,7 @@ function AppPage() {
   const instances = platform?.instances ?? [];
   const links = app.state === "running" ? appLinks(instances) : [];
   const deleting = app.state === "decommissioning";
+  const rt = offer?.runtimes.find((r) => r.id === app.runtime);
 
   return (
     <>
@@ -675,6 +754,8 @@ function AppPage() {
         </div>
       </div>
 
+      {rt && rt.addons.length > 0 && <AddonsSection app={app} addons={rt.addons} disabled={busy || deleting} onChange={(fn) => act(fn)} />}
+
       <div className="section">
         <div className="section__title">
           <h2>Activity</h2>
@@ -685,7 +766,7 @@ function AppPage() {
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">#{r.number}</td>
-                  <td>{r.trigger === "create" ? "Created" : copy("deploy")}</td>
+                  <td>{r.trigger === "create" ? "Created" : r.trigger === "addon" ? r.message : copy("deploy")}</td>
                   <td>
                     <State state={r.status === "succeeded" ? "running" : r.status === "failed" ? "failed" : "deploying"} />
                   </td>

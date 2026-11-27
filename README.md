@@ -39,7 +39,9 @@ no cloud account. With `massdriver.account_mode: tenant`:
 - `paas.runtimes` lists template environments (`project`, `template`). A customer
   picks one, and the server forks it with the template's defaults.
 - Components already deployed in the template are shared by every app. The rest
-  deploy into each app, except `paas.addons`, which deploy only when picked.
+  deploy into each app, except `paas.addons`, which deploy only when picked. An
+  app can add or remove an add-on later; the components linked to it are
+  redeployed so they pick up or drop the connection.
 - `paas.pinned` (and `runtimes[].pinned`) set params over every preset;
   `{{environment_id}}`, `{{app}}` and `{{runtime}}` are filled in.
 - `paas.plans` labels preset cards with a price and a sentence.
@@ -108,6 +110,8 @@ need an account return 412 until signup is complete.
 | GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`), returns 202 |
 | GET, DELETE | `/api/v1/environments/{id}` | Live status with resources and runs; destroy |
 | POST | `/api/v1/environments/{id}/deploys` | Redeploy, returns 202 |
+| POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
+| DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
 
 Errors are `{"error": "...", "field": "..."}` with 422 for validation, 404, 409, and 502
 when Massdriver rejected a call.

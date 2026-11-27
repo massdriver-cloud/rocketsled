@@ -234,6 +234,25 @@
   margin-top: 4px;
 }
 
+.t-addon__row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.t-addon__row > span {
+  display: grid;
+  gap: 2px;
+}
+
+.t-addon__confirm {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
 .t-hero {
   margin-bottom: 24px;
 }
