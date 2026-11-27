@@ -69,13 +69,15 @@ function SignIn({ meta }: { meta: Meta }) {
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const hasPassword = meta.providers.includes("password");
+  const hasOpen = meta.providers.includes("open");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.passwordLogin(login, password);
+      if (hasOpen) await api.signUp(login);
+      else await api.passwordLogin(login, password);
       navigate(next.startsWith("/") ? next : "/", { replace: true });
     } catch (err) {
       setError(err as ApiError);
@@ -97,7 +99,21 @@ function SignIn({ meta }: { meta: Meta }) {
           </div>
           <div className="card__body">
             {skin.tagline && <p className="t-tagline">{skin.tagline}</p>}
-            {hasPassword && (
+            {hasOpen && (
+              <form className="form" onSubmit={submit}>
+                <div className={`field ${error?.field === "login" ? "field--error" : ""}`}>
+                  <label htmlFor="login">What should we call you?</label>
+                  <input id="login" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ada" autoFocus autoComplete="nickname" />
+                  {error?.field === "login" && <span className="field__error">{error.message}</span>}
+                  <span className="hint">No account or password needed. Your apps stay with this browser.</span>
+                </div>
+                {error && !error.field && <Notice tone="bad">{error.message}</Notice>}
+                <button className="btn btn--primary btn--lg" disabled={busy || !login}>
+                  {busy ? "Starting…" : "Get started"}
+                </button>
+              </form>
+            )}
+            {hasPassword && !hasOpen && (
               <form className="form" onSubmit={submit}>
                 <div className={`field ${error?.field === "login" ? "field--error" : ""}`}>
                   <label htmlFor="login">Your name</label>
@@ -360,6 +376,7 @@ function NewApp() {
       <div className="head">
         <div className="head__text">
           <h1>{copy("newEnvironment")}</h1>
+          <LimitsNote offer={loaded} />
         </div>
       </div>
 
@@ -455,6 +472,22 @@ function NewApp() {
       </div>
     </form>
   );
+}
+
+function LimitsNote({ offer }: { offer: Offer }) {
+  const { copy } = useSkin();
+  const parts: string[] = [];
+  if (offer.limits.appsPerPerson) parts.push(`You can have ${offer.limits.appsPerPerson} ${copy("environments").toLowerCase()} at a time.`);
+  if (offer.limits.ttlHours) parts.push(`Each one is removed automatically after ${offer.limits.ttlHours} hours.`);
+  return parts.length ? <p>{parts.join(" ")}</p> : null;
+}
+
+function expiresIn(createdAt: string, hours: number) {
+  const left = new Date(createdAt).getTime() + hours * 3600_000 - Date.now();
+  if (left <= 0) return "soon";
+  const h = Math.floor(left / 3600_000);
+  const m = Math.round((left % 3600_000) / 60_000);
+  return h > 0 ? `in about ${h}h ${m}m` : `in about ${m}m`;
 }
 
 function appLinks(instances: PlatformInstance[]): string[] {
@@ -598,6 +631,9 @@ function AppPage() {
             <span className="muted small">The address shows up here as soon as it answers. This usually takes a few minutes.</span>
           </div>
         )}
+        {offer?.limits.ttlHours ? (
+          <div className="t-hero__foot muted small">Removed automatically {expiresIn(app.createdAt, offer.limits.ttlHours)}.</div>
+        ) : null}
       </section>
 
       <div className="section">

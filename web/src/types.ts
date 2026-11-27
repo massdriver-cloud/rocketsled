@@ -1,4 +1,4 @@
-export type Provider = "github" | "gitlab" | "dev" | "password";
+export type Provider = "github" | "gitlab" | "dev" | "password" | "open";
 
 export interface User {
   id: string;
@@ -201,4 +201,5 @@ export interface RuntimeOffer {
 export interface Offer {
   runtimes: RuntimeOffer[];
   highlights: Record<string, string[]>;
+  limits: { appsPerPerson?: number; totalApps?: number; ttlHours?: number };
 }

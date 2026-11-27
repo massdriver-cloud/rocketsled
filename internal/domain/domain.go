@@ -20,6 +20,8 @@ const (
 	ProviderDev Provider = "dev"
 	// ProviderPassword signs in anyone with the server's shared password.
 	ProviderPassword Provider = "password"
+	// ProviderOpen signs up anyone, under a fresh identity, with just a name.
+	ProviderOpen Provider = "open"
 )
 
 // User is someone who signed in.

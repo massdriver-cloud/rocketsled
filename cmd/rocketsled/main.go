@@ -131,6 +131,8 @@ func build(cfg *config.Config, log *slog.Logger) (*app, error) {
 		StableReleases:   cfg.Catalogs.ReleaseChannel == "stable",
 		PaaS:             paasFrom(cfg.PaaS),
 		Password:         password,
+		Open:             cfg.Auth.Providers.Open != nil,
+		InviteCode:       inviteCode(cfg),
 		Logger:           log,
 	})
 	if err != nil {
@@ -158,6 +160,21 @@ func serve(args []string, log *slog.Logger) error {
 		log.Warn("recovering interrupted installs", "err", err)
 	} else if n > 0 {
 		log.Warn("marked interrupted installs as failed", "accounts", n)
+	}
+
+	if cfg.Massdriver.AccountMode == "tenant" {
+		go func() {
+			tick := time.NewTicker(5 * time.Minute)
+			defer tick.Stop()
+			for {
+				a.svc.ReapExpired(ctx)
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+			}
+		}()
 	}
 
 	shared := massdriver.Factory(domain.Credential{URL: cfg.Massdriver.URL, OrganizationID: cfg.Massdriver.OrganizationID, APIKey: cfg.Massdriver.APIKey})
@@ -238,7 +255,9 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 	if p == nil {
 		return nil
 	}
-	out := &domain.PaaS{Pinned: p.Pinned, Highlights: p.Highlights, Plans: map[string]map[string]domain.Plan{}}
+	out := &domain.PaaS{Pinned: p.Pinned, Highlights: p.Highlights, Plans: map[string]map[string]domain.Plan{}, Limits: domain.Limits{
+		AppsPerPerson: p.Limits.AppsPerPerson, TotalApps: p.Limits.TotalApps, Presets: p.Limits.Presets, Addons: p.Limits.Addons, TTL: p.Limits.TTL,
+	}}
 	for _, r := range p.Runtimes {
 		out.Runtimes = append(out.Runtimes, domain.Runtime{
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
@@ -255,4 +274,11 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 		}
 	}
 	return out
+}
+
+func inviteCode(cfg *config.Config) string {
+	if p := cfg.Auth.Providers.Open; p != nil {
+		return p.InviteCode
+	}
+	return ""
 }

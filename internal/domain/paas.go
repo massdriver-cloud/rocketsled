@@ -23,6 +23,18 @@ type PaaS struct {
 	Addons     []Addon
 	Plans      map[string]map[string]Plan
 	Highlights map[string][]string
+	Limits     Limits
+}
+
+// Limits keep an open sign-up from running up the operator's bill.
+type Limits struct {
+	AppsPerPerson int           `json:"appsPerPerson,omitempty"`
+	TotalApps     int           `json:"totalApps,omitempty"`
+	Presets       []string      `json:"-"`
+	Addons        []string      `json:"-"`
+	TTL           time.Duration `json:"-"`
+	// TTLHours is TTL for the UI.
+	TTLHours float64 `json:"ttlHours,omitempty"`
 }
 
 // Runtime is a template environment customers fork.
@@ -53,6 +65,7 @@ type Plan struct {
 type Offer struct {
 	Runtimes   []RuntimeOffer      `json:"runtimes"`
 	Highlights map[string][]string `json:"highlights"`
+	Limits     Limits              `json:"limits"`
 }
 
 // RuntimeOffer is a runtime with the components every app of it gets and the
@@ -106,7 +119,9 @@ func (s *Service) Offer(ctx context.Context) (*Offer, error) {
 		return s.offers.offer, nil
 	}
 	platform := s.platforms(s.shared)
-	offer := &Offer{Runtimes: []RuntimeOffer{}, Highlights: s.paas.Highlights}
+	limits := s.paas.Limits
+	limits.TTLHours = limits.TTL.Hours()
+	offer := &Offer{Runtimes: []RuntimeOffer{}, Highlights: s.paas.Highlights, Limits: limits}
 	if offer.Highlights == nil {
 		offer.Highlights = map[string][]string{}
 	}
@@ -149,8 +164,15 @@ func (s *Service) runtimeOffer(ctx context.Context, platform Platform, rt Runtim
 		if !ok || strings.EqualFold(pi.Status, "PROVISIONED") {
 			continue
 		}
+		_, isAddon := addons[c.Slug]
+		if isAddon && s.paas.Limits.Addons != nil && !slices.Contains(s.paas.Limits.Addons, c.Slug) {
+			continue
+		}
 		oc := OfferedComponent{Slug: c.Slug, Name: c.Name, Bundle: pi.BundleName, Presets: []OfferedPreset{}}
 		for _, p := range pi.Presets() {
+			if len(s.paas.Limits.Presets) > 0 && !slices.Contains(s.paas.Limits.Presets, p.Name) {
+				continue
+			}
 			plan := s.paas.Plans[c.Slug][p.Name]
 			oc.Presets = append(oc.Presets, OfferedPreset{Name: p.Name, Price: plan.Price, Summary: plan.Summary, Params: p.Params})
 		}
@@ -239,6 +261,9 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 	}
 
 	platform := s.platforms(s.shared)
+	if err := s.checkLimits(ctx, platform, account); err != nil {
+		return nil, err
+	}
 	envID := rt.Project + "-" + in.Slug
 	if _, err := platform.GetEnvironment(ctx, envID); err == nil {
 		return nil, Invalid("slug", "%s is taken; try another name", in.Slug)
@@ -247,7 +272,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		ParentEnvironmentID:     templateID(rt),
 		ID:                      in.Slug,
 		Name:                    in.Name,
-		Description:             "Made in Rocketsled by " + user.Login,
+		Description:             ownerMarker(user.Login, account.OwnerUserID),
 		CopyEnvironmentDefaults: true,
 	})
 	if err != nil {
@@ -263,7 +288,7 @@ func (s *Service) createTenantEnvironment(ctx context.Context, user *User, accou
 		names[c.Slug] = presets[c.Slug].Name
 	}
 	env := &Environment{
-		ID: s.newID(), AccountID: account.ID, Slug: in.Slug, Name: in.Name, EnvironmentID: forked.ID,
+		ID: forked.ID, AccountID: account.ID, Slug: in.Slug, Name: in.Name, EnvironmentID: forked.ID,
 		Presets: names, Runtime: rt.ID, Addons: addons, State: EnvironmentStateDeploying,
 		CreatedBy: user.ID, CreatedAt: now, UpdatedAt: now,
 	}
@@ -459,4 +484,222 @@ func onlyPicked(env *Environment, live *PlatformEnvironment) {
 		}
 	}
 	live.Unfulfilled = unfulfilled
+}
+
+// The owner is written into each environment's description, so who owns which
+// app survives the server losing its database.
+var ownerPattern = regexp.MustCompile(`\[owner ([^\]\s]+)\]$`)
+
+func ownerMarker(login, userID string) string {
+	return fmt.Sprintf("Made in Rocketsled for %s [owner %s]", login, userID)
+}
+
+func ownerOf(description string) string {
+	if m := ownerPattern.FindStringSubmatch(description); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// madeHere lists every environment this server made, across its runtimes.
+func (s *Service) madeHere(ctx context.Context, platform Platform) ([]EnvironmentSummary, map[string]Runtime, error) {
+	var out []EnvironmentSummary
+	runtimeOf := map[string]Runtime{}
+	seen := map[string]bool{}
+	for _, rt := range s.paas.Runtimes {
+		if seen[rt.Project] {
+			continue
+		}
+		seen[rt.Project] = true
+		project, err := platform.GetProject(ctx, rt.Project)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list %s: %w", rt.Project, err)
+		}
+		for _, e := range project.Environments {
+			if ownerOf(e.Description) != "" {
+				out = append(out, e)
+				runtimeOf[e.ID] = rt
+			}
+		}
+	}
+	return out, runtimeOf, nil
+}
+
+func (s *Service) checkLimits(ctx context.Context, platform Platform, account *Account) error {
+	l := s.paas.Limits
+	if l.AppsPerPerson == 0 && l.TotalApps == 0 {
+		return nil
+	}
+	all, _, err := s.madeHere(ctx, platform)
+	if err != nil {
+		return err
+	}
+	mine := 0
+	for _, e := range all {
+		if ownerOf(e.Description) == account.OwnerUserID {
+			mine++
+		}
+	}
+	if l.AppsPerPerson > 0 && mine >= l.AppsPerPerson {
+		return fmt.Errorf("%w: you can have %d at a time; delete one first", ErrConflict, l.AppsPerPerson)
+	}
+	if l.TotalApps > 0 && len(all) >= l.TotalApps {
+		return fmt.Errorf("%w: this demo is full right now; try again later", ErrConflict)
+	}
+	return nil
+}
+
+// syncTenant makes the account's list match Massdriver: it adopts the owner's
+// environments the store doesn't know (after a restart, say) and forgets ones
+// that are gone.
+func (s *Service) syncTenant(ctx context.Context, account *Account) error {
+	platform := s.platforms(s.shared)
+	all, runtimeOf, err := s.madeHere(ctx, platform)
+	if err != nil {
+		return err
+	}
+	known, err := s.store.ListEnvironments(ctx, account.ID)
+	if err != nil {
+		return err
+	}
+	live := map[string]EnvironmentSummary{}
+	for _, e := range all {
+		if ownerOf(e.Description) == account.OwnerUserID {
+			live[e.ID] = e
+		}
+	}
+	for _, e := range known {
+		if _, ok := live[e.EnvironmentID]; !ok && s.now().Sub(e.CreatedAt) > time.Minute {
+			_ = s.store.DeleteEnvironment(ctx, e.ID)
+		}
+		delete(live, e.EnvironmentID)
+	}
+	addons := map[string]bool{}
+	for _, a := range s.paas.Addons {
+		addons[a.ID] = true
+	}
+	for id, summary := range live {
+		pe, err := platform.GetEnvironment(ctx, id)
+		if err != nil {
+			continue
+		}
+		rt := runtimeOf[id]
+		env := &Environment{
+			ID: id, AccountID: account.ID, Slug: strings.TrimPrefix(id, rt.Project+"-"), Name: summary.Name, EnvironmentID: id,
+			Presets: map[string]string{}, Runtime: rt.ID, State: EnvironmentStateDeploying,
+			CreatedBy: account.OwnerUserID, CreatedAt: summary.CreatedAt, UpdatedAt: s.now(),
+		}
+		tmpl := map[string]bool{}
+		if offer, err := s.Offer(ctx); err == nil {
+			if ro, ok := offer.runtime(rt.ID); ok {
+				for _, c := range append(append([]OfferedComponent{}, ro.Components...), ro.Addons...) {
+					tmpl[c.Slug] = true
+				}
+				for _, c := range ro.Components {
+					env.Presets[c.Slug] = ""
+				}
+			}
+		}
+		for _, pi := range pe.Instances {
+			if !tmpl[pi.ComponentSlug] || strings.EqualFold(pi.Status, "INITIALIZED") {
+				continue
+			}
+			name, _ := pi.Params[PresetNameKey].(string)
+			env.Presets[pi.ComponentSlug] = name
+			if addons[pi.ComponentSlug] {
+				env.Addons = append(env.Addons, pi.ComponentSlug)
+			}
+		}
+		if err := s.store.CreateEnvironment(ctx, env); err != nil {
+			s.log.Warn("adopting environment", "environment", id, "err", err)
+		}
+	}
+	return nil
+}
+
+// ReapExpired removes apps older than the TTL and deletes the ones whose
+// resources are all gone. Call it periodically.
+func (s *Service) ReapExpired(ctx context.Context) {
+	if !s.tenant() || s.paas.Limits.TTL == 0 {
+		return
+	}
+	platform := s.platforms(s.shared)
+	all, _, err := s.madeHere(ctx, platform)
+	if err != nil {
+		s.log.Warn("reaper: listing apps", "err", err)
+		return
+	}
+	for _, e := range all {
+		age := s.now().Sub(e.CreatedAt)
+		expired := age >= s.paas.Limits.TTL
+		// A customer's delete only finishes while they watch the page, so
+		// anything left with nothing deployed is cleaned up here too.
+		if !expired && age < 30*time.Minute {
+			continue
+		}
+		pe, err := platform.GetEnvironment(ctx, e.ID)
+		if err != nil {
+			continue
+		}
+		if allDecommissioned(pe) {
+			if err := platform.DeleteEnvironment(ctx, e.ID); err != nil {
+				s.log.Warn("reaper: delete", "environment", e.ID, "err", err)
+			} else {
+				s.log.Info("reaper: deleted expired app", "environment", e.ID)
+			}
+			continue
+		}
+		if !expired {
+			continue
+		}
+		s.reaped.Lock()
+		last, tried := s.reaped.at[e.ID]
+		if tried && s.now().Sub(last) < time.Hour {
+			s.reaped.Unlock()
+			continue
+		}
+		s.reaped.at[e.ID] = s.now()
+		s.reaped.Unlock()
+		if err := platform.DecommissionEnvironment(ctx, e.ID); err != nil {
+			s.log.Warn("reaper: decommission", "environment", e.ID, "err", err)
+		} else {
+			s.log.Info("reaper: removing expired app", "environment", e.ID, "age", s.now().Sub(e.CreatedAt).Round(time.Minute))
+		}
+	}
+}
+
+type reapLog struct {
+	sync.Mutex
+	at map[string]time.Time
+}
+
+// SignUp gives anyone a fresh identity under the name they type. The identity
+// lives in the signed session, so it outlasts the server's database.
+func (s *Service) SignUp(ctx context.Context, name, inviteCode string) (*User, error) {
+	if !s.open {
+		return nil, fmt.Errorf("%w: sign-up is closed", ErrNotFound)
+	}
+	name = strings.TrimSpace(name)
+	if !loginPattern.MatchString(name) {
+		return nil, Invalid("login", "use letters, digits, dots, dashes or underscores, up to 39")
+	}
+	if s.inviteCode != "" && subtle.ConstantTimeCompare([]byte(inviteCode), []byte(s.inviteCode)) != 1 {
+		return nil, Invalid("inviteCode", "that invite code is not right")
+	}
+	id := strings.ReplaceAll(s.newID(), "-", "")
+	id = id[len(id)-12:]
+	user := &User{ID: string(ProviderOpen) + ":" + id + ":" + name, Provider: ProviderOpen, ProviderUserID: id, Login: name, Name: name, CreatedAt: s.now()}
+	if err := s.store.UpsertUser(ctx, user); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+// openUser rebuilds a signed-up user from their session's ID.
+func openUser(id string) (*User, bool) {
+	parts := strings.SplitN(id, ":", 3)
+	if len(parts) != 3 || parts[0] != string(ProviderOpen) || !loginPattern.MatchString(parts[2]) {
+		return nil, false
+	}
+	return &User{ID: id, Provider: ProviderOpen, ProviderUserID: parts[1], Login: parts[2], Name: parts[2]}, true
 }

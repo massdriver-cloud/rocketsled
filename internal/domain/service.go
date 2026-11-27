@@ -43,11 +43,14 @@ type Options struct {
 	PaaS *PaaS
 	// Password enables password sign-in.
 	Password string
-	RunAsync func(func())
-	Logger   *slog.Logger
-	Now      func() time.Time
-	NewID    func() string
-	NewOrgID func() string
+	// Open enables sign-up with just a name; InviteCode, when set, gates it.
+	Open       bool
+	InviteCode string
+	RunAsync   func(func())
+	Logger     *slog.Logger
+	Now        func() time.Time
+	NewID      func() string
+	NewOrgID   func() string
 }
 
 // Service implements Rocketsled's use cases.
@@ -69,7 +72,10 @@ type Service struct {
 	newOrgID   func() string
 	paas       *PaaS
 	password   string
+	open       bool
+	inviteCode string
 	offers     offerCache
+	reaped     reapLog
 }
 
 // NewService validates options and builds a Service.
@@ -77,7 +83,7 @@ func NewService(o Options) (*Service, error) {
 	if o.Platforms == nil || o.Store == nil || o.Installer == nil {
 		return nil, errors.New("domain: Platforms, Store and Installer are required")
 	}
-	if len(o.SCMs) == 0 && o.Password == "" {
+	if len(o.SCMs) == 0 && o.Password == "" && !o.Open {
 		return nil, errors.New("domain: at least one sign-in provider is required")
 	}
 	switch o.Mode {
@@ -114,6 +120,9 @@ func NewService(o Options) (*Service, error) {
 		newOrgID:   o.NewOrgID,
 		paas:       o.PaaS,
 		password:   o.Password,
+		open:       o.Open,
+		inviteCode: o.InviteCode,
+		reaped:     reapLog{at: map[string]time.Time{}},
 	}
 	for _, scm := range o.SCMs {
 		s.scms[scm.Provider()] = scm
@@ -156,6 +165,9 @@ func (s *Service) Providers() []Provider {
 	if s.password != "" {
 		out = append(out, ProviderPassword)
 	}
+	if s.open {
+		out = append(out, ProviderOpen)
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
@@ -196,7 +208,17 @@ func (s *Service) SignIn(ctx context.Context, provider Provider, code, redirectU
 
 // GetUser loads a user by ID.
 func (s *Service) GetUser(ctx context.Context, id string) (*User, error) {
-	return s.store.GetUser(ctx, id)
+	u, err := s.store.GetUser(ctx, id)
+	if err != nil && s.open && errors.Is(err, ErrNotFound) {
+		if rebuilt, ok := openUser(id); ok {
+			rebuilt.CreatedAt = s.now()
+			if err := s.store.UpsertUser(ctx, rebuilt); err != nil {
+				return nil, err
+			}
+			return rebuilt, nil
+		}
+	}
+	return u, err
 }
 
 // --- accounts ----------------------------------------------------------------
@@ -845,6 +867,11 @@ func resolvePresets(project *Project, chosen map[string]string) (map[string]Pres
 
 // ListEnvironments lists the account's environments.
 func (s *Service) ListEnvironments(ctx context.Context, account *Account) ([]Environment, error) {
+	if s.tenant() {
+		if err := s.syncTenant(ctx, account); err != nil {
+			s.log.Warn("syncing apps from Massdriver", "account", account.ID, "err", err)
+		}
+	}
 	envs, err := s.store.ListEnvironments(ctx, account.ID)
 	if err != nil {
 		return nil, err
@@ -938,6 +965,11 @@ func (s *Service) EnvironmentStatus(ctx context.Context, account *Account, id st
 
 func (s *Service) ownedEnvironment(ctx context.Context, account *Account, id string) (*Environment, error) {
 	env, err := s.store.GetEnvironment(ctx, id)
+	if err != nil && s.tenant() && errors.Is(err, ErrNotFound) {
+		if syncErr := s.syncTenant(ctx, account); syncErr == nil {
+			env, err = s.store.GetEnvironment(ctx, id)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

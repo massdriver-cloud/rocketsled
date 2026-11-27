@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"io"
+	"time"
 )
 
 //go:generate go tool moq -pkg mocks -out mocks/mocks.go -stub . Platform SCM Store Installer
@@ -83,8 +84,10 @@ type Preset struct {
 
 // EnvironmentSummary lists an environment on a project.
 type EnvironmentSummary struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // PlatformEnvironment is a Massdriver environment with its instances.

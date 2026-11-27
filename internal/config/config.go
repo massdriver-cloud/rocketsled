@@ -41,6 +41,20 @@ type PaaS struct {
 	// Plans label presets with a price and a sentence, keyed by component, then preset.
 	Plans      map[string]map[string]Plan `yaml:"plans"`
 	Highlights map[string][]string        `yaml:"highlights"`
+	Limits     Limits                     `yaml:"limits"`
+}
+
+// Limits keep an open sign-up from running up the operator's bill.
+type Limits struct {
+	// AppsPerPerson and TotalApps cap live apps; zero means no cap.
+	AppsPerPerson int `yaml:"apps_per_person"`
+	TotalApps     int `yaml:"total_apps"`
+	// Presets, when set, are the only presets customers may pick.
+	Presets []string `yaml:"presets"`
+	// Addons, when set, are the only add-ons customers may pick; an empty list allows none.
+	Addons []string `yaml:"addons"`
+	// TTL removes an app this long after it was made; zero keeps apps.
+	TTL time.Duration `yaml:"ttl"`
 }
 
 // Runtime is a template environment customers fork.
@@ -136,6 +150,12 @@ type AuthProviders struct {
 	Dev *DevProvider `yaml:"dev"`
 	// Password signs in anyone who knows the shared password, under the name they type.
 	Password *PasswordProvider `yaml:"password"`
+	// Open lets anyone sign up with just a name, or with an invite code when one is set.
+	Open *OpenProvider `yaml:"open"`
+}
+
+type OpenProvider struct {
+	InviteCode string `yaml:"invite_code"`
 }
 
 type PasswordProvider struct {
@@ -260,8 +280,8 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("catalogs.release_channel must be stable or development, got %q", c.Catalogs.ReleaseChannel))
 	}
-	if c.Auth.Providers.GitHub == nil && c.Auth.Providers.GitLab == nil && c.Auth.Providers.Dev == nil && c.Auth.Providers.Password == nil {
-		errs = append(errs, errors.New("auth.providers must configure github, gitlab, password or dev"))
+	if c.Auth.Providers.GitHub == nil && c.Auth.Providers.GitLab == nil && c.Auth.Providers.Dev == nil && c.Auth.Providers.Password == nil && c.Auth.Providers.Open == nil {
+		errs = append(errs, errors.New("auth.providers must configure github, gitlab, open, password or dev"))
 	}
 	if p := c.Auth.Providers.Password; p != nil && len(p.Password) < 8 {
 		errs = append(errs, errors.New("auth.providers.password.password must be at least 8 characters"))

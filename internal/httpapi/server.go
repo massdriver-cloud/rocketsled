@@ -72,6 +72,7 @@ func (s *Server) routes() {
 	})
 
 	m.HandleFunc("POST /auth/password", s.handlePasswordLogin)
+	m.HandleFunc("POST /auth/signup", s.handleSignUp)
 	m.HandleFunc("GET /auth/{provider}/login", s.handleLogin)
 	m.HandleFunc("GET /skin/{file}", s.handleSkinFile)
 	m.HandleFunc("GET /api/v1/offer", s.account(s.handleOffer))
@@ -271,6 +272,24 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := s.svc.SignInWithPassword(r.Context(), in.Login, in.Password)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	s.sessions.SetSession(w, user.ID)
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleSignUp(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Login      string `json:"login"`
+		InviteCode string `json:"inviteCode"`
+	}
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	user, err := s.svc.SignUp(r.Context(), in.Login, in.InviteCode)
 	if err != nil {
 		s.writeDomainError(w, err)
 		return

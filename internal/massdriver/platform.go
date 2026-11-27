@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/massdriver-cloud/rocketsled/internal/domain"
 )
@@ -22,7 +23,7 @@ const projectQuery = `
 query RocketsledProject($organizationId: ID!, $id: ID!) {
   project(organizationId: $organizationId, id: $id) {
     id name description
-    environments(cursor: { limit: 100 }) { items { id name } }
+    environments(cursor: { limit: 100 }) { items { id name description createdAt } }
     components { id name ociRepo { name } }
     links { fromComponent { id } toComponent { id } }
   }
@@ -34,8 +35,10 @@ type gqlProject struct {
 	Description  string `json:"description"`
 	Environments struct {
 		Items []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID          string    `json:"id"`
+			Name        string    `json:"name"`
+			Description string    `json:"description"`
+			CreatedAt   time.Time `json:"createdAt"`
 		} `json:"items"`
 	} `json:"environments"`
 	Components []struct {
@@ -74,7 +77,7 @@ func (c *Client) GetProject(ctx context.Context, projectID string) (*domain.Proj
 		Environments: []domain.EnvironmentSummary{},
 	}
 	for _, e := range out.Project.Environments.Items {
-		p.Environments = append(p.Environments, domain.EnvironmentSummary{ID: e.ID, Name: e.Name})
+		p.Environments = append(p.Environments, domain.EnvironmentSummary{ID: e.ID, Name: e.Name, Description: e.Description, CreatedAt: e.CreatedAt})
 	}
 	for _, comp := range out.Project.Components {
 		component := domain.Component{Slug: localID(comp.ID, out.Project.ID), Name: comp.Name}
