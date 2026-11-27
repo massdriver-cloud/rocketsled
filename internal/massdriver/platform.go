@@ -93,6 +93,79 @@ func (c *Client) GetProject(ctx context.Context, projectID string) (*domain.Proj
 	return p, nil
 }
 
+const projectsQuery = `
+query RocketsledProjects($organizationId: ID!, $cursor: Cursor) {
+  projects(organizationId: $organizationId, cursor: $cursor) {
+    cursor { next }
+    items {
+      id name description
+      environments(cursor: { limit: 100 }) { items { id name description createdAt } }
+    }
+  }
+}`
+
+func (c *Client) ListProjects(ctx context.Context) ([]domain.Project, error) {
+	var out []domain.Project
+	cursor := map[string]any{"limit": 100}
+	for {
+		var page struct {
+			Projects struct {
+				Cursor struct {
+					Next *string `json:"next"`
+				} `json:"cursor"`
+				Items []gqlProject `json:"items"`
+			} `json:"projects"`
+		}
+		if err := c.do(ctx, projectsQuery, map[string]any{"cursor": cursor}, &page); err != nil {
+			return nil, err
+		}
+		for _, p := range page.Projects.Items {
+			project := domain.Project{ID: p.ID, Name: p.Name, Description: p.Description, Components: []domain.Component{}, Links: []domain.Link{}, Environments: []domain.EnvironmentSummary{}}
+			for _, e := range p.Environments.Items {
+				project.Environments = append(project.Environments, domain.EnvironmentSummary{ID: e.ID, Name: e.Name, Description: e.Description, CreatedAt: e.CreatedAt})
+			}
+			out = append(out, project)
+		}
+		if page.Projects.Cursor.Next == nil || *page.Projects.Cursor.Next == "" {
+			return out, nil
+		}
+		cursor = map[string]any{"limit": 100, "next": *page.Projects.Cursor.Next}
+	}
+}
+
+const createProjectFromEnvironmentMutation = `
+mutation RocketsledCreateProjectFromEnvironment($organizationId: ID!, $sourceEnvironmentId: ID!, $input: CreateProjectFromEnvironmentInput!) {
+  createProjectFromEnvironment(organizationId: $organizationId, sourceEnvironmentId: $sourceEnvironmentId, input: $input) {
+    successful
+    messages { field message code }
+    result { id }
+  }
+}`
+
+func (c *Client) CreateProjectFromEnvironment(ctx context.Context, sourceEnvironmentID string, req domain.NewProject) error {
+	var out struct {
+		CreateProjectFromEnvironment payload[struct{ ID string }] `json:"createProjectFromEnvironment"`
+	}
+	vars := map[string]any{
+		"sourceEnvironmentId": sourceEnvironmentID,
+		"input": map[string]any{
+			"id":          req.ID,
+			"name":        req.Name,
+			"description": req.Description,
+			"copyParams":  "CONFIGURED",
+			"environment": map[string]any{"id": req.EnvironmentID, "name": req.EnvironmentName},
+		},
+	}
+	if err := c.do(ctx, createProjectFromEnvironmentMutation, vars, &out); err != nil {
+		return err
+	}
+	return out.CreateProjectFromEnvironment.check("createProjectFromEnvironment")
+}
+
+func (c *Client) DeleteProject(ctx context.Context, projectID string) error {
+	return c.simpleMutation(ctx, "deleteProject", projectID)
+}
+
 // mapArg encodes a Go map for Massdriver's Map scalar, which only accepts a
 // JSON-encoded string on input.
 func mapArg(m map[string]any) string {
@@ -304,7 +377,7 @@ func (c *Client) DeleteEnvironment(ctx context.Context, environmentID string) er
 	return c.simpleMutation(ctx, "deleteEnvironment", environmentID)
 }
 
-// simpleMutation runs a (organizationId, id) -> EnvironmentPayload mutation.
+// simpleMutation runs a mutation that takes (organizationId, id) and returns a payload with an id.
 func (c *Client) simpleMutation(ctx context.Context, name, id string) error {
 	query := fmt.Sprintf(`
 mutation Rocketsled($organizationId: ID!, $id: ID!) {

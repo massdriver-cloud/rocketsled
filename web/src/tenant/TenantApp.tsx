@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, timeAgo } from "../api";
-import type { DomainsView, Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin, StageSummary } from "../types";
+import type { AppProject, DomainsView, Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin, StageSummary } from "../types";
 import { Highlights, Loading, Notice } from "../components/ui";
 import { Releases } from "../components/Releases";
 import { Tokens } from "../components/Tokens";
@@ -25,6 +25,8 @@ const defaultCopy: Record<string, string> = {
   open: "Open app",
   stage: "Stage",
   promote: "Promote",
+  project: "project",
+  projects: "Projects",
 };
 
 const SkinContext = createContext<{ skin: Skin; copy: (k: string) => string; offer?: Offer }>({
@@ -234,15 +236,33 @@ function runtimeName(offer: Offer | undefined, id?: string) {
 
 function Apps() {
   const { copy, offer } = useSkin();
-  const [apps, setApps] = useState<Environment[] | null>(null);
+  const [all, setApps] = useState<Environment[] | null>(null);
+  const [projects, setProjects] = useState<AppProject[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api
       .environments()
       .then(setApps)
       .catch((e: ApiError) => setError(e.message));
+    api
+      .projects()
+      .then(setProjects)
+      .catch(() => undefined);
   }, []);
+  useEffect(load, [load]);
+
+  async function removeProject(p: AppProject) {
+    if (!window.confirm(`Delete ${p.name}?`)) return;
+    try {
+      await api.deleteProject(p.id);
+      load();
+    } catch (e) {
+      setError((e as ApiError).message);
+    }
+  }
+
+  const apps = all?.filter((a) => !a.app) ?? null;
 
   return (
     <>
@@ -257,7 +277,24 @@ function Apps() {
       <PlatformNote offer={offer} />
       {error && <Notice tone="bad">{error}</Notice>}
       {apps === null && !error && <Loading />}
-      {apps?.length === 0 && (
+      {projects.map((p) => {
+        const inProject = all?.filter((a) => a.app === p.id) ?? [];
+        return (
+          <div key={p.id} className="section">
+            <div className="section__title">
+              <h2>{p.name}</h2>
+              <span className="muted small">{runtimeName(offer, p.runtime)}</span>
+              {inProject.length === 0 && (
+                <button className="linkbtn" onClick={() => removeProject(p)}>
+                  Delete {copy("project")}
+                </button>
+              )}
+            </div>
+            {inProject.length > 0 ? <AppList apps={inProject} /> : <p className="muted small">{copy("empty")}</p>}
+          </div>
+        );
+      })}
+      {apps?.length === 0 && projects.length === 0 && (
         <div className="card empty t-empty">
           <p>{copy("empty")}</p>
           <Link to="/new" className="btn btn--primary btn--lg">
@@ -374,6 +411,16 @@ function NewApp() {
   const [error, setError] = useState<ApiError | null>(null);
   const [offerError, setOfferError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Offer | undefined>(offer);
+  const [projects, setProjects] = useState<AppProject[]>([]);
+  const [project, setProject] = useState("");
+  const [projectName, setProjectName] = useState("");
+
+  useEffect(() => {
+    api
+      .projects()
+      .then(setProjects)
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (offer) setLoaded(offer);
@@ -396,6 +443,12 @@ function NewApp() {
     .replace(/[^a-z0-9]/g, "")
     .slice(0, 20);
   const pick = (c: OfferedComponent) => presets[c.slug] ?? c.presets[0]?.name ?? "";
+  const projectSlug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 20);
+  const ownProjects = projects.filter((p) => p.runtime === rt?.id);
+  const placeReady = !rt?.appProjects || project !== "" || slugPattern.test(projectSlug);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -405,7 +458,9 @@ function NewApp() {
     const chosen: Record<string, string> = {};
     for (const c of [...rt.components, ...rt.addons.filter((a) => addons.includes(a.slug))]) if (pick(c)) chosen[c.slug] = pick(c);
     try {
-      const app = await api.createApp({ slug, name: name.trim() || slug, runtime: rt.id, addons, presets: chosen, stage: stage || undefined });
+      let inProject: string | undefined;
+      if (rt.appProjects) inProject = project || (await api.createProject(projectSlug, rt.id)).id;
+      const app = await api.createApp({ slug, name: name.trim() || slug, runtime: rt.id, app: inProject, addons, presets: chosen, stage: stage || undefined });
       navigate(`/apps/${app.id}`);
     } catch (err) {
       setError(err as ApiError);
@@ -439,7 +494,7 @@ function NewApp() {
               Lowercase letters and digits, up to 20.{" "}
               {slug && rt && (
                 <span className="mono">
-                  {rt.project}-{slug}
+                  {rt.appProjects ? project || projectSlug || "…" : rt.project}-{slug}
                 </span>
               )}
             </span>
@@ -479,6 +534,36 @@ function NewApp() {
           </div>
         </div>
       </section>
+
+      {rt?.appProjects && (
+        <section className="card t-step">
+          <div className="card__head">
+            <h2>{capitalize(copy("project"))}</h2>
+          </div>
+          <div className="card__body">
+            <div className={`field ${error?.field === "app" || error?.field === "name" ? "field--error" : ""}`}>
+              <select value={project} onChange={(e) => setProject(e.target.value)} aria-label={capitalize(copy("project"))}>
+                {ownProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+                <option value="">New {copy("project")}…</option>
+              </select>
+              {project === "" && (
+                <input
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  placeholder="shop"
+                  autoComplete="off"
+                  aria-label={`New ${copy("project")} name`}
+                />
+              )}
+              {(error?.field === "app" || error?.field === "name") && <span className="field__error">{error.message}</span>}
+            </div>
+          </div>
+        </section>
+      )}
 
       {rt && rt.stages.length > 0 && (
         <section className="card t-step">
@@ -547,7 +632,7 @@ function NewApp() {
 
       {error && error.field !== "slug" && <Notice tone="bad">{error.message}</Notice>}
       <div className="btn-row t-submit">
-        <button className="btn btn--primary btn--lg" disabled={busy || !slugPattern.test(slug) || !rt}>
+        <button className="btn btn--primary btn--lg" disabled={busy || !slugPattern.test(slug) || !rt || !placeReady}>
           {busy ? (skin.layout === "minimal" ? "…" : "Creating…") : copy("create")}
         </button>
         <Link to="/" className="btn btn--lg">

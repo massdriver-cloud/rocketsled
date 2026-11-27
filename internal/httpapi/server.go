@@ -98,6 +98,9 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/v1/account/tokens/{id}", s.account(s.handleRevokeToken))
 	m.HandleFunc("GET /api/v1/environments/{id}/releases", s.releaser(s.handleListReleases))
 	m.HandleFunc("POST /api/v1/environments/{id}/releases", s.releaser(s.handleRelease))
+	m.HandleFunc("GET /api/v1/apps", s.account(s.handleListApps))
+	m.HandleFunc("POST /api/v1/apps", s.account(s.handleCreateApp))
+	m.HandleFunc("DELETE /api/v1/apps/{id}", s.account(s.handleDeleteApp))
 	m.HandleFunc("PUT /api/v1/previews/{name}", s.releaser(s.handlePreview))
 	m.HandleFunc("DELETE /api/v1/previews/{name}", s.releaser(s.handleDeletePreview))
 	m.HandleFunc("POST /api/v1/environments/{id}/addons", s.account(s.handleAddAddon))
@@ -576,6 +579,37 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, release)
 }
 
+func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
+	apps, err := s.svc.ListApps(r.Context(), accountFrom(r.Context()))
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
+}
+
+func (s *Server) handleCreateApp(w http.ResponseWriter, r *http.Request) {
+	var in domain.CreateAppInput
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	app, err := s.svc.CreateApp(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), in)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, app)
+}
+
+func (s *Server) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.DeleteApp(r.Context(), accountFrom(r.Context()), r.PathValue("id")); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	var in domain.PreviewInput
 	if err := decode(r, &in); err != nil {
@@ -591,7 +625,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeletePreview(w http.ResponseWriter, r *http.Request) {
-	env, err := s.svc.DeletePreview(r.Context(), accountFrom(r.Context()), r.PathValue("name"))
+	env, err := s.svc.DeletePreview(r.Context(), accountFrom(r.Context()), r.PathValue("name"), r.URL.Query().Get("app"))
 	if err != nil {
 		s.writeDomainError(w, err)
 		return

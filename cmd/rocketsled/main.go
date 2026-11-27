@@ -300,7 +300,7 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 	for _, r := range p.Runtimes {
 		out.Runtimes = append(out.Runtimes, domain.Runtime{
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,
-			AppComponent: r.AppComponent, ImageParam: r.ImageParam, Pinned: r.Pinned,
+			AppComponent: r.AppComponent, ImageParam: r.ImageParam, Pinned: r.Pinned, AppProjects: r.AppProjects,
 		})
 	}
 	if pl := p.Platform; pl != nil {

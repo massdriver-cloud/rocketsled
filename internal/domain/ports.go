@@ -19,6 +19,13 @@ type Platform interface {
 	CreateServiceAccount(ctx context.Context, name string) (string, error)
 	// GetProject returns the blueprint and environments.
 	GetProject(ctx context.Context, projectID string) (*Project, error)
+	// ListProjects returns every project with its environments, without blueprints.
+	ListProjects(ctx context.Context) ([]Project, error)
+	// CreateProjectFromEnvironment makes a project with the source environment's
+	// blueprint and one environment whose instances copy the source's bundle versions and params.
+	CreateProjectFromEnvironment(ctx context.Context, sourceEnvironmentID string, req NewProject) error
+	// DeleteProject removes a project with no environments.
+	DeleteProject(ctx context.Context, projectID string) error
 	// GetEnvironment returns an environment with each instance's params, schema, status and resources.
 	GetEnvironment(ctx context.Context, environmentID string) (*PlatformEnvironment, error)
 	// ForkEnvironment creates (or converges) an environment seeded from a parent.
@@ -166,6 +173,15 @@ func (pi PlatformInstance) Presets() []Preset {
 	return out
 }
 
+// NewProject describes a project made from an environment.
+type NewProject struct {
+	ID              string
+	Name            string
+	Description     string
+	EnvironmentID   string
+	EnvironmentName string
+}
+
 // ForkRequest describes an environment fork.
 type ForkRequest struct {
 	ParentEnvironmentID     string
@@ -240,6 +256,11 @@ type Store interface {
 	GetTokenByHash(ctx context.Context, hash string) (*Token, error)
 	TouchToken(ctx context.Context, id string, at time.Time) error
 	DeleteToken(ctx context.Context, accountID, id string) error
+
+	CreateApp(ctx context.Context, a *App) error
+	GetApp(ctx context.Context, id string) (*App, error)
+	ListApps(ctx context.Context, accountID string) ([]App, error)
+	DeleteApp(ctx context.Context, id string) error
 
 	CreateRelease(ctx context.Context, r *Release) error
 	ListReleases(ctx context.Context, environmentID string, limit int) ([]Release, error)

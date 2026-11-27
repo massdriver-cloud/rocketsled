@@ -114,6 +114,7 @@ export interface Environment {
   image?: string;
   stage?: string;
   preview?: boolean;
+  app?: string;
   state: EnvironmentState;
   createdAt: string;
   updatedAt: string;
@@ -231,6 +232,7 @@ export interface RuntimeOffer {
   name: string;
   summary?: string;
   project: string;
+  appProjects?: boolean;
   components: OfferedComponent[];
   addons: OfferedComponent[];
   domains: boolean;
@@ -266,4 +268,12 @@ export interface DomainsView {
   domains: DomainRecord[];
   target: string;
   multiple: boolean;
+}
+
+export interface AppProject {
+  id: string;
+  name: string;
+  runtime: string;
+  createdAt: string;
+  environments: Environment[];
 }

@@ -141,6 +141,8 @@ type Runtime struct {
 	Template     string `yaml:"template"`
 	AppComponent string `yaml:"app_component"`
 	ImageParam   string `yaml:"image_param"`
+	// AppProjects gives each app its own project, made from the template.
+	AppProjects bool `yaml:"app_projects"`
 	// Pinned applies over paas.pinned for this runtime's apps only.
 	Pinned map[string]map[string]any `yaml:"pinned"`
 }

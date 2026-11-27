@@ -214,3 +214,38 @@ func TestEnvironmentDefaultsListsResourceIDs(t *testing.T) {
 	assert.Equal(t, []string{"platform-main-cluster.cluster", "res-role"}, ids)
 	assert.Equal(t, "ruby-template", last.Variables["id"])
 }
+
+func TestProjectsArePagedAndCreatedFromAnEnvironment(t *testing.T) {
+	var calls []capture
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c capture
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&c))
+		calls = append(calls, c)
+		if len(calls) == 1 {
+			_, _ = w.Write([]byte(`{"data":{"projects":{"cursor":{"next":"p2"},"items":[{"id":"ruby","name":"Ruby","description":"","environments":{"items":[]}}]}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"projects":{"cursor":{"next":null},"items":[{"id":"shop","name":"shop","description":"[owner x]","environments":{"items":[{"id":"shop-template","name":"Template"}]}}]}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := massdriver.New(srv.URL, "acme", "md_secret", srv.Client())
+
+	projects, err := c.ListProjects(context.Background())
+	require.NoError(t, err)
+	require.Len(t, projects, 2)
+	assert.Equal(t, "shop", projects[1].ID)
+	assert.Equal(t, "shop-template", projects[1].Environments[0].ID)
+	assert.Equal(t, map[string]any{"limit": float64(100), "next": "p2"}, calls[1].Variables["cursor"])
+
+	c2, last, _ := server(t, `{"data":{"createProjectFromEnvironment":{"successful":true,"result":{"id":"shop"}}}}`, 200)
+	require.NoError(t, c2.CreateProjectFromEnvironment(context.Background(), "ruby-template", domain.NewProject{ID: "shop", Name: "Shop", Description: "d", EnvironmentID: "template", EnvironmentName: "Template"}))
+	assert.Equal(t, "ruby-template", last.Variables["sourceEnvironmentId"])
+	assert.Equal(t, map[string]any{
+		"id": "shop", "name": "Shop", "description": "d", "copyParams": "CONFIGURED",
+		"environment": map[string]any{"id": "template", "name": "Template"},
+	}, last.Variables["input"])
+
+	c3, last, _ := server(t, `{"data":{"deleteProject":{"successful":true,"result":{"id":"shop"}}}}`, 200)
+	require.NoError(t, c3.DeleteProject(context.Background(), "shop"))
+	assert.Equal(t, "shop", last.Variables["id"])
+}

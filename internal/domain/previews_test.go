@@ -76,7 +76,7 @@ func TestPreviewRejects(t *testing.T) {
 	h.app(t, "hello")
 	_, err = h.svc.Preview(ctx, h.user, h.account, "hello", domain.PreviewInput{Image: "x"})
 	require.ErrorIs(t, err, domain.ErrConflict, "a preview never releases to an app that isn't one")
-	_, err = h.svc.DeletePreview(ctx, h.account, "hello")
+	_, err = h.svc.DeletePreview(ctx, h.account, "hello", "")
 	require.ErrorIs(t, err, domain.ErrConflict, "and never deletes one")
 
 	two := previewPaaS()
@@ -93,7 +93,7 @@ func TestDeletePreviewDecommissionsIt(t *testing.T) {
 	_, err := h.svc.Preview(ctx, h.user, h.account, "pr7", domain.PreviewInput{Image: "x"})
 	require.NoError(t, err)
 
-	env, err := h.svc.DeletePreview(ctx, h.account, "pr7")
+	env, err := h.svc.DeletePreview(ctx, h.account, "pr7", "")
 	require.NoError(t, err)
 	assert.Equal(t, domain.EnvironmentStateDecommissioning, env.State)
 	require.Len(t, h.platform.DecommissionEnvironmentCalls(), 1)

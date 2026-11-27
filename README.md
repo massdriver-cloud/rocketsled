@@ -38,6 +38,11 @@ no cloud account. With `massdriver.account_mode: tenant`:
   tokens, copy) and optional CSS. The whole UI wears it.
 - `paas.runtimes` lists template environments (`project`, `template`). A customer
   picks one, and the server forks it with the template's defaults.
+- A runtime with `app_projects: true` gives each customer app its own Massdriver
+  project, made from the runtime's template (`createProjectFromEnvironment`), with
+  every default of the runtime's template shared with it and pinned on its own
+  `template` environment. The app's environments, stages and previews fork that
+  template, so they share one canvas and nothing else.
 - Components already deployed in the template are shared by every app. The rest
   deploy into each app, except `paas.addons`, which deploy only when picked. An
   app can add or remove an add-on later; the components linked to it are
@@ -136,6 +141,8 @@ deploy token as a bearer token, which is good for nothing else.
 | GET, POST | `/api/v1/account/tokens` | Deploy tokens; create one (`{name}`), its secret is returned once |
 | DELETE | `/api/v1/account/tokens/{id}` | Revoke a deploy token |
 | GET, POST | `/api/v1/environments/{id}/releases` | Releases, newest first; release an image (`{image, description}`), returns 202. `{id}` may be the slug. Accepts `Authorization: Bearer <deploy token>` |
+| GET, POST | `/api/v1/apps` | Tenant mode: apps with their own project and their environments; make one (`{name, runtime}`) |
+| DELETE | `/api/v1/apps/{id}` | Tenant mode: delete an app's project once it has no environments |
 | PUT, DELETE | `/api/v1/previews/{name}` | Tenant mode: make a preview and release to it (`{image, description, runtime}`), or remove it. Takes a deploy token, returns 202 |
 | POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
 | DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
