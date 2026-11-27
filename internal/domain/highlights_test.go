@@ -39,8 +39,9 @@ func TestPickHighlights(t *testing.T) {
 			name: "large numbers print whole, credentials in values and key fields stay hidden",
 			resource: domain.InstanceResource{Payload: map[string]any{
 				"account": float64(123456789012), "uri": "postgres://app:hunter2@db.internal/app", "keyspace": "main", "api_key": "k",
+				"sshKey": "ssh-ed25519 AAAA", "odd": "postgres://u:pa#ss@h/db",
 			}},
-			configured: []string{"account", "uri", "api_key", "keyspace"},
+			configured: []string{"account", "uri", "api_key", "keyspace", "sshKey", "odd"},
 			want:       []domain.Highlight{{"account", "Account", "123456789012"}, {"keyspace", "Keyspace", "main"}},
 		},
 		{

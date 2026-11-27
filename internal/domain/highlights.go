@@ -25,7 +25,14 @@ type SchemaField struct {
 	Title string
 }
 
-var secretField = regexp.MustCompile(`(?i)secret|password|passwd|token|credential|private|dsn|connection_string|(^|_)key$|(^|_)key_|api_?key|access_key`)
+var (
+	secretField = regexp.MustCompile(`(?i)secret|password|passwd|token|credential|private|dsn|connection_string|(^|_)key$|(^|_)key_|api_?key|access_key`)
+	// camelKey catches sshKey and signingKey, which the snake_case rules miss.
+	camelKey = regexp.MustCompile(`[a-z0-9]Key$`)
+	// userinfo spots credentials in a connection string url.Parse can't read,
+	// one whose password has a # or / in it, say.
+	userinfo = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://[^/@\s]*:[^@\s]*@`)
+)
 
 // PickHighlights chooses what to show of a resource: the configured fields in
 // their configured order, or else the first scalar fields in schema order.
@@ -47,7 +54,7 @@ func PickHighlights(r InstanceResource, configured []string) []Highlight {
 			break
 		}
 		value, ok := scalar(r.Payload[name])
-		if !ok || secretField.MatchString(name) || carriesPassword(value) || slices.ContainsFunc(out, func(h Highlight) bool { return h.Field == name }) {
+		if !ok || secretField.MatchString(name) || camelKey.MatchString(name) || carriesPassword(value) || slices.ContainsFunc(out, func(h Highlight) bool { return h.Field == name }) {
 			continue
 		}
 		title := titles[name]
@@ -82,6 +89,9 @@ func fallbackOrder(r InstanceResource) []string {
 
 // carriesPassword spots a connection string with credentials in it, whatever its field is called.
 func carriesPassword(value string) bool {
+	if userinfo.MatchString(value) {
+		return true
+	}
 	u, err := url.Parse(value)
 	if err != nil || u.User == nil {
 		return false
