@@ -155,3 +155,34 @@ func TestNoPlatformLayer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, offer.Platform)
 }
+
+func TestPlatformWaitsForADeployAlreadyGoing(t *testing.T) {
+	h, pw := withPlatform(t, fauxrokuPlatform(), map[string]string{"network": "PROVISIONED", "dns": "PROVISIONED", "cluster": "PROVISIONED"})
+	pw.status["dns"] = "PROVISIONING"
+	h.platform.GetEnvironmentFunc = func(get func(context.Context, string) (*domain.PlatformEnvironment, error)) func(context.Context, string) (*domain.PlatformEnvironment, error) {
+		calls := 0
+		return func(ctx context.Context, id string) (*domain.PlatformEnvironment, error) {
+			if id == "platform-main" {
+				calls++
+				if calls > 1 {
+					pw.mu.Lock()
+					pw.status["dns"] = "PROVISIONED"
+					pw.mu.Unlock()
+				}
+			}
+			return get(ctx, id)
+		}
+	}(h.platform.GetEnvironmentFunc)
+
+	require.NoError(t, h.svc.EnsurePlatform(context.Background()))
+	assert.Empty(t, pw.order, "a deploy a restart left going is waited for, not started again")
+}
+
+func TestAnUnmanagedShareThatFailedIsReportedNotWaitedOn(t *testing.T) {
+	layer := &domain.PlatformLayer{Project: "platform", Environment: "main", Shares: []domain.Share{{Component: "cluster", Field: "cluster"}}}
+	h, _ := withPlatform(t, layer, map[string]string{"cluster": "FAILED"})
+	require.Error(t, h.svc.EnsurePlatform(context.Background()))
+	st := h.svc.PlatformStatus()
+	assert.Equal(t, domain.PlatformStateFailed, st.State)
+	assert.Contains(t, st.Error, "platform-main-cluster is failed")
+}

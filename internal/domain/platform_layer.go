@@ -113,15 +113,23 @@ func (s *Service) ensurePlatform(ctx context.Context) error {
 		if strings.EqualFold(pi.Status, "PROVISIONED") {
 			continue
 		}
+		s.platformRun.Lock()
+		s.platformRun.status = &PlatformStatus{State: PlatformStateDeploying}
+		s.platformRun.Unlock()
+		if inProgress(pi.Status) {
+			// A deploy a previous server started is still going; Massdriver
+			// would refuse another, so this one only waits for it.
+			if err := s.waitProvisioned(ctx, platform, envID, []string{c.Slug}); err != nil {
+				return err
+			}
+			continue
+		}
 		i := slices.IndexFunc(pi.Presets(), func(p Preset) bool { return p.Name == c.Preset })
 		if i < 0 {
 			return fmt.Errorf("platform component %s has no preset %q", c.Slug, c.Preset)
 		}
 		params := MergeParams(MergeParams(map[string]any{}, pi.Presets()[i].Params), renderPinned(c.Params, vars))
 		s.log.Info("platform: deploying", "component", c.Slug, "preset", c.Preset)
-		s.platformRun.Lock()
-		s.platformRun.status = &PlatformStatus{State: PlatformStateDeploying}
-		s.platformRun.Unlock()
 		if err := platform.DeployInstance(ctx, pi.ID, params, "Platform layer deployed by Rocketsled"); err != nil {
 			return fmt.Errorf("deploy platform %s: %w", c.Slug, err)
 		}
@@ -134,8 +142,12 @@ func (s *Service) ensurePlatform(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("platform %s has no component %q to share", envID, share.Component)
 		}
-		if !strings.EqualFold(pi.Status, "PROVISIONED") && !slices.ContainsFunc(layer.Components, func(c PlatformComponent) bool { return c.Slug == share.Component }) {
-			return fmt.Errorf("%w: %s is %s", errPlatformDeploying, pi.ID, strings.ToLower(pi.Status))
+		managed := slices.ContainsFunc(layer.Components, func(c PlatformComponent) bool { return c.Slug == share.Component })
+		if !managed && !strings.EqualFold(pi.Status, "PROVISIONED") {
+			if inProgress(pi.Status) {
+				return fmt.Errorf("%w: %s is %s", errPlatformDeploying, pi.ID, strings.ToLower(pi.Status))
+			}
+			return fmt.Errorf("%s is %s; deploy it, or list %s under paas.platform.components", pi.ID, strings.ToLower(pi.Status), share.Component)
 		}
 		resourceID := pi.ID + "." + share.Field
 		for _, project := range s.runtimeProjects() {
@@ -157,6 +169,15 @@ func (s *Service) ensurePlatform(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// inProgress is a status on the way to PROVISIONED or DECOMMISSIONED.
+func inProgress(status string) bool {
+	switch strings.ToUpper(status) {
+	case "PROVISIONED", "INITIALIZED", "FAILED", "DECOMMISSIONED":
+		return false
+	}
+	return true
 }
 
 func (s *Service) runtimeProjects() []string {
