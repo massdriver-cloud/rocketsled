@@ -104,6 +104,9 @@ when Massdriver rejected a call.
 ## Development
 
 ```sh
+make hooks       # once per clone: pre-commit lint, pre-push make check
+make check       # everything CI runs
+make fmt         # gofumpt, goimports, prettier
 make test        # go test -race ./...
 make lint        # golangci-lint + eslint + tsc
 make generate    # regenerate domain mocks (moq)

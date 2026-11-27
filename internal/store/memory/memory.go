@@ -4,6 +4,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 
@@ -70,9 +71,7 @@ func (s *Store) CreateAccount(_ context.Context, a *domain.Account, credential d
 
 func cloneAccount(a domain.Account) domain.Account {
 	p := make(map[string]string, len(a.Platforms))
-	for k, v := range a.Platforms {
-		p[k] = v
-	}
+	maps.Copy(p, a.Platforms)
 	a.Platforms = p
 	return a
 }

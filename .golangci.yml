@@ -22,14 +22,18 @@ linters:
     - errname
     - errorlint
     - exhaustive
+    - forcetypeassert
     - gocritic
     - gosec
     - govet
     - ineffassign
+    - intrange
     - misspell
+    - modernize
     - nilerr
     - noctx
     - nolintlint
+    - perfsprint
     - prealloc
     - predeclared
     - revive
@@ -41,6 +45,8 @@ linters:
     - usestdlibvars
     - wastedassign
   settings:
+    perfsprint:
+      strconcat: false
     errcheck:
       exclude-functions:
         - (io.Closer).Close
@@ -67,5 +73,6 @@ linters:
     rules:
       - path: _test\.go
         linters:
+          - forcetypeassert
           - gosec
           - noctx

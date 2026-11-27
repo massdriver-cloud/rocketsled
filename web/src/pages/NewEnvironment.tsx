@@ -39,7 +39,13 @@ export function NewEnvironment() {
 
   function onName(v: string) {
     setName(v);
-    if (!slugTouched) setSlug(v.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20));
+    if (!slugTouched)
+      setSlug(
+        v
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+          .slice(0, 20),
+      );
   }
 
   async function submit(e: React.FormEvent) {
@@ -93,7 +99,11 @@ export function NewEnvironment() {
               autoComplete="off"
             />
             <span className="hint">
-              Lowercase letters and digits, up to 20. Becomes <span className="mono">{view.project.id}-{slug || "…"}</span>.
+              Lowercase letters and digits, up to 20. Becomes{" "}
+              <span className="mono">
+                {view.project.id}-{slug || "…"}
+              </span>
+              .
             </span>
             {error?.field === "slug" && <span className="field__error">{error.message}</span>}
           </div>
@@ -114,7 +124,12 @@ export function NewEnvironment() {
                 <div className="choices" role="radiogroup" aria-label={`Size for ${c.name}`}>
                   {c.bundle.presets.map((p) => (
                     <label key={p.name} className="choice" data-checked={presets[c.slug] === p.name}>
-                      <input type="radio" name={`preset-${c.slug}`} checked={presets[c.slug] === p.name} onChange={() => setPresets({ ...presets, [c.slug]: p.name })} />
+                      <input
+                        type="radio"
+                        name={`preset-${c.slug}`}
+                        checked={presets[c.slug] === p.name}
+                        onChange={() => setPresets({ ...presets, [c.slug]: p.name })}
+                      />
                       <span className="choice__text">
                         <span className="choice__title">{p.name}</span>
                         <span className="choice__meta">{summarize(p.params)}</span>

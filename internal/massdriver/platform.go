@@ -3,6 +3,7 @@ package massdriver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -437,7 +438,7 @@ func (c *Client) CreateServiceAccount(ctx context.Context, name string) (string,
 		return "", err
 	}
 	if out.CreateServiceAccount.Result == nil || out.CreateServiceAccount.Result.Token == "" {
-		return "", fmt.Errorf("createServiceAccount returned no token")
+		return "", errors.New("createServiceAccount returned no token")
 	}
 	return out.CreateServiceAccount.Result.Token, nil
 }
