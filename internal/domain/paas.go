@@ -324,10 +324,14 @@ func (s *Service) redeployTenant(ctx context.Context, platform Platform, env *En
 	if err != nil {
 		return err
 	}
+	rt := s.runtimeConfig(env.Runtime)
+	vars := map[string]string{"environment_id": env.EnvironmentID, "app": env.Slug, "runtime": rt.ID}
 	params := map[string]map[string]any{}
 	for _, pi := range live.Instances {
 		if _, ok := env.Presets[pi.ComponentSlug]; ok {
-			params[pi.ComponentSlug] = pi.Params
+			// Pinned params win again, so a redeploy picks up what the operator changed.
+			pinned := MergeParams(renderPinned(s.paas.Pinned[pi.ComponentSlug], vars), renderPinned(rt.Pinned[pi.ComponentSlug], vars))
+			params[pi.ComponentSlug] = MergeParams(pi.Params, pinned)
 		}
 	}
 	var links []Link
