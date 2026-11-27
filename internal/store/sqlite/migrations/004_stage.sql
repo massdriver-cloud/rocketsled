@@ -1,0 +1,1 @@
+ALTER TABLE environments ADD COLUMN stage TEXT NOT NULL DEFAULT '';

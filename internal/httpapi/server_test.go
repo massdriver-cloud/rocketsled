@@ -151,6 +151,18 @@ func TestDomainsRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, r.StatusCode)
 }
 
+func TestPromoteRoute(t *testing.T) {
+	e := newEnv(t)
+	r := e.do(t, http.MethodPost, "/api/v1/account", map[string]string{"name": "Cory"}, true)
+	require.Equal(t, http.StatusCreated, r.StatusCode)
+
+	r = e.do(t, http.MethodPost, "/api/v1/environments/staging/promote", map[string]any{"to": 1}, true)
+	assert.Equal(t, http.StatusUnprocessableEntity, r.StatusCode, "to is a string")
+
+	r = e.do(t, http.MethodPost, "/api/v1/environments/staging/promote", map[string]string{"to": "production"}, true)
+	assert.Equal(t, http.StatusNotFound, r.StatusCode, "only tenant mode has pipelines")
+}
+
 func TestOnboardingFlowOverHTTP(t *testing.T) {
 	e := newEnv(t)
 

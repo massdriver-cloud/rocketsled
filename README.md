@@ -55,6 +55,12 @@ no cloud account. With `massdriver.account_mode: tenant`:
   own hostnames at an app. They land on that component's param, which keeps them
   over a pinned value, and the app page shows the CNAME to create, pointing at
   `target_field` of the component's resource.
+- `paas.pipeline.stages` (`id`, `name`, `presets`) put apps in stages, listed in
+  pipeline order. Picking a stage fills in its presets and switches on the add-ons
+  it names. `paas.pipeline.promote` names the components a promotion copies from
+  an app to one in a later stage of the same runtime: their config and bundle
+  version move, while the target keeps its own presets, pinned params and add-ons,
+  and only what changed deploys.
 - `paas.limits` caps apps per person and in total, restricts presets and add-ons,
   and removes apps after a `ttl`.
 - `auth.providers.open: {}` lets anyone sign up with a name. An `invite_code` gates it.
@@ -115,7 +121,7 @@ deploy token as a bearer token, which is good for nothing else.
 | GET | `/api/v1/account` | Account status and install log |
 | GET, POST | `/api/v1/account/platforms[/{type}]` | Credential requirements; provide one (`{name, payload}`) |
 | GET | `/api/v1/project` | Project, components with presets, environments |
-| GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`), returns 202 |
+| GET, POST | `/api/v1/environments` | List, create (`{slug, name, presets}`; tenant mode adds `runtime`, `addons`, `stage`), returns 202 |
 | GET, DELETE | `/api/v1/environments/{id}` | Live status with resources and runs; destroy |
 | POST | `/api/v1/environments/{id}/deploys` | Redeploy, returns 202 |
 | GET, POST | `/api/v1/account/tokens` | Deploy tokens; create one (`{name}`), its secret is returned once |
@@ -124,6 +130,7 @@ deploy token as a bearer token, which is good for nothing else.
 | POST | `/api/v1/environments/{id}/addons` | Tenant mode: add an add-on (`{component, preset}`), returns 202 |
 | DELETE | `/api/v1/environments/{id}/addons/{component}` | Tenant mode: remove an add-on and its data, returns 202 |
 | GET, PUT | `/api/v1/environments/{id}/domains` | Tenant mode: custom domains with the CNAME each needs; replace them (`{domains}`), returns 202 |
+| POST | `/api/v1/environments/{id}/promote` | Tenant mode: promote to an app in a later stage (`{to}`), returns 202 |
 
 Errors are `{"error": "...", "field": "..."}` with 422 for validation, 404, 409, and 502
 when Massdriver rejected a call.

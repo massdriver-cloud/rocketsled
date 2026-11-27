@@ -51,7 +51,7 @@ export const api = {
   passwordLogin: (login: string, password: string) => request<User>("/auth/password", { method: "POST", body: JSON.stringify({ login, password }) }),
   signUp: (login: string) => request<User>("/auth/signup", { method: "POST", body: JSON.stringify({ login }) }),
   offer: () => request<Offer>("/api/v1/offer"),
-  createApp: (input: { slug: string; name: string; runtime: string; addons: string[]; presets: Record<string, string> }) =>
+  createApp: (input: { slug: string; name: string; runtime: string; addons: string[]; presets: Record<string, string>; stage?: string }) =>
     request<Environment>("/api/v1/environments", { method: "POST", body: JSON.stringify(input) }),
   me: () => request<Me>("/api/v1/me"),
   logout: () => request<void>("/api/v1/logout", { method: "POST" }),
@@ -82,6 +82,7 @@ export const api = {
   domains: (id: string) => request<DomainsView>(`/api/v1/environments/${encodeURIComponent(id)}/domains`),
   setDomains: (id: string, domains: string[]) =>
     request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/domains`, { method: "PUT", body: JSON.stringify({ domains }) }),
+  promote: (id: string, to: string) => request<Run>(`/api/v1/environments/${encodeURIComponent(id)}/promote`, { method: "POST", body: JSON.stringify({ to }) }),
 };
 
 export function loginUrl(provider: string, next = "/") {

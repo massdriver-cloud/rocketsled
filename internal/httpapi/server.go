@@ -102,6 +102,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/v1/environments/{id}/addons/{component}", s.account(s.handleRemoveAddon))
 	m.HandleFunc("GET /api/v1/environments/{id}/domains", s.account(s.handleGetDomains))
 	m.HandleFunc("PUT /api/v1/environments/{id}/domains", s.account(s.handleSetDomains))
+	m.HandleFunc("POST /api/v1/environments/{id}/promote", s.account(s.handlePromote))
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint", "")
 	})
@@ -612,6 +613,20 @@ func (s *Server) handleSetDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run, err := s.svc.SetDomains(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"), in)
+	if err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
+func (s *Server) handlePromote(w http.ResponseWriter, r *http.Request) {
+	var in domain.PromoteInput
+	if err := decode(r, &in); err != nil {
+		s.writeDomainError(w, err)
+		return
+	}
+	run, err := s.svc.Promote(r.Context(), userFrom(r.Context()), accountFrom(r.Context()), r.PathValue("id"), in)
 	if err != nil {
 		s.writeDomainError(w, err)
 		return

@@ -287,6 +287,10 @@ func paasFrom(p *config.PaaS) *domain.PaaS {
 	if d := p.Domains; d != nil {
 		out.Domains = &domain.Domains{Component: d.Component, Param: d.Param, TargetField: d.TargetField}
 	}
+	out.Pipeline.Promote = p.Pipeline.Promote
+	for _, st := range p.Pipeline.Stages {
+		out.Pipeline.Stages = append(out.Pipeline.Stages, domain.Stage{ID: st.ID, Name: st.Name, Presets: st.Presets})
+	}
 	for _, r := range p.Runtimes {
 		out.Runtimes = append(out.Runtimes, domain.Runtime{
 			ID: r.ID, Name: r.Name, Summary: r.Summary, Project: r.Project, Template: r.Template,

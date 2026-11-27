@@ -112,6 +112,7 @@ export interface Environment {
   runtime?: string;
   addons?: string[];
   image?: string;
+  stage?: string;
   state: EnvironmentState;
   createdAt: string;
   updatedAt: string;
@@ -128,7 +129,7 @@ export type RunStatus = "queued" | "running" | "succeeded" | "failed";
 export interface Run {
   id: string;
   number: number;
-  trigger: "create" | "deploy" | "addon" | "release" | "domains";
+  trigger: "create" | "deploy" | "addon" | "release" | "domains" | "promote";
   status: RunStatus;
   message?: string;
   createdAt: string;
@@ -232,11 +233,24 @@ export interface RuntimeOffer {
   components: OfferedComponent[];
   addons: OfferedComponent[];
   domains: boolean;
+  stages: OfferedStage[];
+  promote: string[];
+}
+
+export interface StageSummary {
+  id: string;
+  name: string;
+}
+
+export interface OfferedStage extends StageSummary {
+  presets: Record<string, string>;
+  addons: string[];
 }
 
 export interface Offer {
   runtimes: RuntimeOffer[];
   limits: { appsPerPerson?: number; totalApps?: number; ttlHours?: number };
+  stages: StageSummary[];
 }
 
 export interface DomainRecord {

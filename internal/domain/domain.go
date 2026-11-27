@@ -154,7 +154,9 @@ type Environment struct {
 	// Image is the last image released to the app component; it wins over pinned params.
 	Image string `json:"image,omitempty"`
 	// Domains are the hostnames the customer pointed at the app; nil until they set any.
-	Domains   *DomainSetting   `json:"-"`
+	Domains *DomainSetting `json:"-"`
+	// Stage is the pipeline stage a tenant-mode app belongs to.
+	Stage     string           `json:"stage,omitempty"`
 	State     EnvironmentState `json:"state"`
 	CreatedBy string           `json:"createdBy"`
 	CreatedAt time.Time        `json:"createdAt"`
@@ -172,6 +174,8 @@ const (
 	TriggerRelease RunTrigger = "release"
 	// TriggerDomains changes an app's custom domains.
 	TriggerDomains RunTrigger = "domains"
+	// TriggerPromote copies config and versions from an app in an earlier stage.
+	TriggerPromote RunTrigger = "promote"
 )
 
 // RunStatus is Rocketsled's record of a deploy request.

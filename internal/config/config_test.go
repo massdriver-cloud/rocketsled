@@ -186,3 +186,62 @@ auth:
 		})
 	}
 }
+
+func TestPipelineIsValidated(t *testing.T) {
+	base := `
+server:
+  session_secret: 0123456789abcdef0123456789abcdef
+massdriver:
+  account_mode: tenant
+  organization_id: rs-test
+  api_key: md_test
+auth:
+  providers:
+    password: {password: hunter22}
+paas:
+  runtimes:
+    - {id: ruby, project: ruby, template: template}
+  pipeline:
+`
+	cases := []struct {
+		name     string
+		pipeline string
+		wantErr  string
+	}{
+		{"valid", `
+    stages:
+      - {id: staging, presets: {web: Development}}
+      - {id: production, name: Production}
+    promote: [web]`, ""},
+		{"empty id", `
+    stages:
+      - {name: Staging}`, "stages[0].id must be"},
+		{"not slug-safe", `
+    stages:
+      - {id: Staging}`, "stages[0].id must be"},
+		{"duplicate", `
+    stages:
+      - {id: staging}
+      - {id: staging}`, `"staging" is listed twice`},
+		{"promote without stages", `
+    stages:
+      - {id: staging}
+    promote: [web]`, "promote needs at least two stages"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := config.Parse([]byte(base + tc.pipeline + "\n"))
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			stages := cfg.PaaS.Pipeline.Stages
+			assert.Equal(t, "staging", stages[0].Name, "a stage without a name is called by its id")
+			assert.Equal(t, "Production", stages[1].Name)
+			assert.Equal(t, map[string]string{"web": "Development"}, stages[0].Presets)
+			assert.Equal(t, []string{"web"}, cfg.PaaS.Pipeline.Promote)
+		})
+	}
+}

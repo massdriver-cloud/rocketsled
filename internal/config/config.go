@@ -44,6 +44,7 @@ type PaaS struct {
 	Highlights map[string][]string        `yaml:"highlights"`
 	Limits     Limits                     `yaml:"limits"`
 	Domains    *Domains                   `yaml:"domains"`
+	Pipeline   Pipeline                   `yaml:"pipeline"`
 }
 
 // Domains names the component customers' own hostnames land on: the param that
@@ -52,6 +53,22 @@ type Domains struct {
 	Component   string `yaml:"component"`
 	Param       string `yaml:"param"`
 	TargetField string `yaml:"target_field"`
+}
+
+// Pipeline orders an app's environments into stages, each with the presets
+// its environments start from, and names what moves between them.
+type Pipeline struct {
+	Stages []Stage `yaml:"stages"`
+	// Promote lists the components whose config and version a promotion copies.
+	Promote []string `yaml:"promote"`
+}
+
+// Stage is one step of a pipeline. Presets are keyed by component; an add-on
+// named here starts switched on.
+type Stage struct {
+	ID      string            `yaml:"id"`
+	Name    string            `yaml:"name"`
+	Presets map[string]string `yaml:"presets"`
 }
 
 // Limits keep an open sign-up from running up the operator's bill.
@@ -266,6 +283,13 @@ func (c *Config) applyDefaults() {
 	if c.Catalogs.Dir == "" && len(c.Catalogs.Dirs) == 0 {
 		c.Catalogs.Dir = "catalogs"
 	}
+	if c.PaaS != nil {
+		for i := range c.PaaS.Pipeline.Stages {
+			if st := &c.PaaS.Pipeline.Stages[i]; st.Name == "" {
+				st.Name = st.ID
+			}
+		}
+	}
 }
 
 // resolveCredential fills the shared credential from the mass CLI profile when
@@ -359,6 +383,26 @@ func (p *PaaS) validate() []error {
 	}
 	if d := p.Domains; d != nil && (d.Component == "" || d.Param == "" || d.TargetField == "") {
 		errs = append(errs, errors.New("paas.domains needs component, param and target_field"))
+	}
+	return append(errs, p.Pipeline.validate()...)
+}
+
+var stageID = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
+
+func (p Pipeline) validate() []error {
+	var errs []error
+	seen := map[string]bool{}
+	for i, st := range p.Stages {
+		if !stageID.MatchString(st.ID) {
+			errs = append(errs, fmt.Errorf("paas.pipeline.stages[%d].id must be 1-20 lowercase letters or digits, got %q", i, st.ID))
+		}
+		if seen[st.ID] {
+			errs = append(errs, fmt.Errorf("paas.pipeline.stages: %q is listed twice", st.ID))
+		}
+		seen[st.ID] = true
+	}
+	if len(p.Promote) > 0 && len(p.Stages) < 2 {
+		errs = append(errs, errors.New("paas.pipeline.promote needs at least two stages"))
 	}
 	return errs
 }

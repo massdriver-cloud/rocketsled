@@ -253,6 +253,25 @@
   flex-wrap: wrap;
 }
 
+.t-promote {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.t-stage + .t-stage {
+  margin-top: 24px;
+}
+
+.t-stage__name {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  margin: 0 0 10px;
+}
+
 .t-hero {
   margin-bottom: 24px;
 }

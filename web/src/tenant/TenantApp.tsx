@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, timeAgo } from "../api";
-import type { DomainsView, Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin } from "../types";
+import type { DomainsView, Environment, EnvironmentView, Me, Meta, Offer, OfferedComponent, PlatformInstance, Skin, StageSummary } from "../types";
 import { Highlights, Loading, Notice } from "../components/ui";
 import { Releases } from "../components/Releases";
 import { Tokens } from "../components/Tokens";
@@ -23,6 +23,8 @@ const defaultCopy: Record<string, string> = {
   runtime: "Runtime",
   addons: "Add-ons",
   open: "Open app",
+  stage: "Stage",
+  promote: "Promote",
 };
 
 const SkinContext = createContext<{ skin: Skin; copy: (k: string) => string; offer?: Offer }>({
@@ -262,25 +264,37 @@ function Apps() {
           </Link>
         </div>
       )}
-      {apps && apps.length > 0 && (
-        <div className="list">
-          {apps.map((a) => (
-            <Link key={a.id} to={`/apps/${a.id}`} className="card item t-app">
-              <div className="item__text">
-                <span className="item__title">{a.name}</span>
-                <span className="item__meta">
-                  <span>{runtimeName(offer, a.runtime)}</span>
-                  {a.addons && a.addons.length > 0 && <span>+ {a.addons.join(", ")}</span>}
-                  <span>created {timeAgo(a.createdAt)}</span>
-                </span>
-              </div>
-              <State state={a.state} />
-            </Link>
-          ))}
-        </div>
-      )}
+      {apps &&
+        apps.length > 0 &&
+        byStage(apps, offer?.stages ?? []).map((group) => (
+          <div key={group.id} className="t-stage">
+            {group.name && <h2 className="t-stage__name">{group.name}</h2>}
+            <div className="list">
+              {group.apps.map((a) => (
+                <Link key={a.id} to={`/apps/${a.id}`} className="card item t-app">
+                  <div className="item__text">
+                    <span className="item__title">{a.name}</span>
+                    <span className="item__meta">
+                      <span>{runtimeName(offer, a.runtime)}</span>
+                      {a.addons && a.addons.length > 0 && <span>+ {a.addons.join(", ")}</span>}
+                      <span>created {timeAgo(a.createdAt)}</span>
+                    </span>
+                  </div>
+                  <State state={a.state} />
+                </Link>
+              ))}
+            </div>
+          </div>
+        ))}
     </>
   );
+}
+
+function byStage(apps: Environment[], stages: StageSummary[]) {
+  const groups = stages.map((s) => ({ id: s.id, name: s.name, apps: apps.filter((a) => a.stage === s.id) }));
+  const rest = apps.filter((a) => !stages.some((s) => s.id === a.stage));
+  if (rest.length > 0) groups.push({ id: "", name: stages.length > 0 ? "Other" : "", apps: rest });
+  return groups.filter((g) => g.apps.length > 0);
 }
 
 const slugPattern = /^[a-z0-9]{1,20}$/;
@@ -336,6 +350,7 @@ function NewApp() {
   const [runtime, setRuntime] = useState("");
   const [addons, setAddons] = useState<string[]>([]);
   const [presets, setPresets] = useState<Record<string, string>>({});
+  const [stage, setStage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [offerError, setOfferError] = useState<string | null>(null);
@@ -371,7 +386,7 @@ function NewApp() {
     const chosen: Record<string, string> = {};
     for (const c of [...rt.components, ...rt.addons.filter((a) => addons.includes(a.slug))]) if (pick(c)) chosen[c.slug] = pick(c);
     try {
-      const app = await api.createApp({ slug, name: name.trim() || slug, runtime: rt.id, addons, presets: chosen });
+      const app = await api.createApp({ slug, name: name.trim() || slug, runtime: rt.id, addons, presets: chosen, stage: stage || undefined });
       navigate(`/apps/${app.id}`);
     } catch (err) {
       setError(err as ApiError);
@@ -430,6 +445,8 @@ function NewApp() {
                 onClick={() => {
                   setRuntime(r.id);
                   setAddons([]);
+                  setPresets({});
+                  setStage("");
                 }}
               >
                 <span className="t-runtime__mark" aria-hidden="true">
@@ -442,6 +459,35 @@ function NewApp() {
           </div>
         </div>
       </section>
+
+      {rt && rt.stages.length > 0 && (
+        <section className="card t-step">
+          <div className="card__head">
+            <h2>{copy("stage")}</h2>
+          </div>
+          <div className="card__body">
+            <div className="t-runtimes" role="radiogroup" aria-label={copy("stage")}>
+              {rt.stages.map((s) => (
+                <button
+                  type="button"
+                  key={s.id}
+                  data-rs="preset"
+                  role="radio"
+                  aria-checked={s.id === stage}
+                  className="t-runtime"
+                  onClick={() => {
+                    setStage(s.id);
+                    setPresets(s.presets);
+                    setAddons(s.addons);
+                  }}
+                >
+                  <span className="t-runtime__name">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {rt?.components.map((c) => (
         <section key={c.slug} className="card t-step">
@@ -489,6 +535,61 @@ function NewApp() {
         </Link>
       </div>
     </form>
+  );
+}
+
+function PromoteSection({
+  app,
+  stages,
+  disabled,
+  onPromote,
+}: {
+  app: Environment;
+  stages: StageSummary[];
+  disabled: boolean;
+  onPromote: (to: string) => void;
+}) {
+  const { copy } = useSkin();
+  const [targets, setTargets] = useState<Environment[]>([]);
+  const [to, setTo] = useState("");
+  const here = stages.findIndex((s) => s.id === app.stage);
+
+  useEffect(() => {
+    api
+      .environments()
+      .then((all) => {
+        const later = all.filter(
+          (e) => e.id !== app.id && e.runtime === app.runtime && e.state !== "decommissioning" && stages.findIndex((s) => s.id === e.stage) > here,
+        );
+        setTargets(later);
+        setTo((current) => current || later[0]?.id || "");
+      })
+      .catch(() => setTargets([]));
+  }, [app.id, app.runtime, stages, here]);
+
+  if (targets.length === 0) return null;
+  const stageName = (id?: string) => stages.find((s) => s.id === id)?.name ?? id;
+  const target = targets.find((t) => t.id === to);
+
+  return (
+    <div className="section">
+      <div className="section__title">
+        <h2>{copy("promote")}</h2>
+      </div>
+      <div className="card card__body t-promote">
+        <select value={to} onChange={(e) => setTo(e.target.value)} aria-label={`${copy("promote")} to`}>
+          {targets.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} ({stageName(t.stage)})
+            </option>
+          ))}
+        </select>
+        <button className="btn btn--primary" disabled={disabled || !target} onClick={() => target && onPromote(target.id)}>
+          {copy("promote")} to {target?.name}
+        </button>
+        <span className="hint">Copies this {copy("environment")}'s code and settings. Plans, add-ons and data stay as they are.</span>
+      </div>
+    </div>
   );
 }
 
@@ -826,6 +927,7 @@ function AppPage() {
               <tr>
                 <th>Component</th>
                 <th>{copy("preset")}</th>
+                <th>Version</th>
                 <th>Status</th>
                 <th>Details</th>
               </tr>
@@ -835,6 +937,7 @@ function AppPage() {
                 <tr key={pi.id}>
                   <td className="cell--strong">{pi.componentName || pi.componentSlug}</td>
                   <td>{app.presets[pi.componentSlug] ?? "—"}</td>
+                  <td className="mono">{rt?.promote.includes(pi.componentSlug) ? pi.deployedVersion || pi.version : "—"}</td>
                   <td>
                     <State state={instanceStatus[pi.status] ?? "deploying"} />
                   </td>
@@ -853,6 +956,10 @@ function AppPage() {
       {rt?.domains && <DomainsSection app={app} disabled={busy || deleting} onChange={(fn) => act(fn)} />}
 
       {rt && rt.addons.length > 0 && <AddonsSection app={app} addons={rt.addons} disabled={busy || deleting} onChange={(fn) => act(fn)} />}
+
+      {offer && rt && rt.promote.length > 0 && app.stage && (
+        <PromoteSection app={app} stages={offer.stages} disabled={busy || deleting} onPromote={(to) => act(() => api.promote(id, to))} />
+      )}
 
       <div className="section">
         <div className="section__title">
