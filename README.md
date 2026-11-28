@@ -1,38 +1,131 @@
 # Rocketsled
 
-Rocketsled is the "pick a platform" front door to [Massdriver](https://massdriver.cloud).
-Someone signs in, chooses a catalog (AWS Serverless to start), connects their cloud
-account, and gets a working platform with production-shaped environments they size by
-choosing presets. Underneath, every account is a real Massdriver organization they can
-take over whenever they outgrow the simple view.
+Build your own Heroku or Vercel on [Massdriver](https://massdriver.cloud).
 
-## How it works
+Rocketsled is a branded front door for an internal or public PaaS. Customers sign in,
+pick a runtime, choose plans and add-ons, push images from CI, promote builds through
+stages, and get a preview app for every pull request. Your platform team never builds a
+console: everything a customer gets is a Massdriver bundle, deployed by Massdriver, in an
+organization you own.
 
-1. **Sign up.** A signup is a Massdriver organization. In `organization` mode Rocketsled
-   creates one (`rs-<adjective>-<noun>-<nn>`) with a user token that may create
-   organizations, then mints an admin service account in it and keeps that token,
-   encrypted, as the account's credential. In `shared` mode (development) every account
-   borrows one configured organization.
-2. **Install a catalog.** A catalog is a directory with `platforms/`, `resource-types/`,
-   `bundles/` and `bootstrap/`. Rocketsled shells out to the `mass` CLI to publish the
-   platforms, resource types and bundles into the account's organization, then runs
-   `tofu apply` on the bootstrap, which creates the project, its environments and the
-   links between components. The OpenTofu state is stored with the account so a retry
-   converges. This happens once per account.
-3. **Connect the cloud.** Each platform type the catalog lists (an AWS IAM role, say)
-   becomes a form generated from its JSON Schema, with the type's own instructions next
-   to it. The submitted credential is created as a resource in the organization and
-   pinned as an environment default on every environment.
-4. **Create environments.** An environment forks the bootstrapped base environment,
-   applies one preset per component (the bundle's own `params.examples`), pins the
-   credentials, and deploys. The environment page shows each component's status and the
-   addresses and names its resources expose.
+<p>
+  <img src="docs/screenshots/fauxroku/02-apps.png" alt="Fauxroku apps grouped by pipeline stage" width="49%">
+  <img src="docs/screenshots/fauxcel/12-deployments-dark.png" alt="Fauxcel deployments in its dark skin" width="49%">
+</p>
 
-## Tenant mode
+Both of those are the same server. **Fauxroku** is a Heroku-style PaaS on ECS with dynos,
+Postgres and a key-value store. **Fauxcel** is a Vercel-style PaaS on Lambda with
+functions, static sites, KV and blob storage. Each is one config file and one skin over
+templates in a Massdriver organization; see
+[massdriver-catalogs/aws examples/rocketsled](https://github.com/massdriver-catalogs/aws/tree/main/examples/rocketsled).
 
-A PaaS operator runs Rocketsled as a branded website over templates that already
-exist in their own Massdriver organization. Nothing is installed and customers bring
-no cloud account. With `massdriver.account_mode: tenant`:
+## What customers get
+
+**Create an app.** Pick a runtime, a pipeline stage, a plan for each component, and the
+add-ons it needs. Plans are the bundles' own presets, labelled with a price and a sentence.
+
+<p>
+  <img src="docs/screenshots/fauxroku/03-new-app.png" alt="Fauxroku: create a new app" width="49%">
+  <img src="docs/screenshots/fauxcel/03-new.png" alt="Fauxcel: new deployment" width="49%">
+</p>
+
+**See it run.** The app's address shows up once everything answers. Each component lists
+its plan, bundle version, status and the fields of its resources worth knowing, in the
+order the operator picked.
+
+<p>
+  <img src="docs/screenshots/fauxroku/04-app-overview.png" alt="Fauxroku: app overview with resources" width="49%">
+  <img src="docs/screenshots/fauxcel/10-static-site.png" alt="Fauxcel: a static site" width="49%">
+</p>
+
+**Add and remove add-ons later.** Adding one deploys it, then redeploys whatever is linked
+to it so it picks up the connection. Removing one asks first, because it deletes the data.
+
+<p>
+  <img src="docs/screenshots/fauxroku/05-add-ons.png" alt="Fauxroku: add-ons on a running app" width="49%">
+  <img src="docs/screenshots/fauxcel/05-storage.png" alt="Fauxcel: storage add-ons" width="49%">
+</p>
+
+**Push to deploy.** A build releases an image with a deploy token that can do nothing
+else. Every release is numbered, and any older one is a click away. The page shows the
+GitHub Actions step to paste.
+
+<p>
+  <img src="docs/screenshots/fauxroku/06-releases.png" alt="Fauxroku: releases with roll back" width="49%">
+  <img src="docs/screenshots/fauxcel/06-releases.png" alt="Fauxcel: releases" width="49%">
+</p>
+
+<p>
+  <img src="docs/screenshots/fauxroku/09-deploy-tokens.png" alt="Fauxroku: deploy tokens" width="49%">
+  <img src="docs/screenshots/fauxcel/09-deploy-tokens.png" alt="Fauxcel: deploy tokens" width="49%">
+</p>
+
+**Promote, don't rebuild.** Apps sit in pipeline stages. Promoting copies the build and
+config that ran in one stage to the next, while the target keeps its own plans, add-ons,
+domains and data.
+
+<p>
+  <img src="docs/screenshots/fauxroku/07-pipeline.png" alt="Fauxroku: promote staging to production" width="49%">
+  <img src="docs/screenshots/fauxcel/07-pipeline.png" alt="Fauxcel: promote a preview to production" width="49%">
+</p>
+
+**A preview for every pull request.** One call from CI makes a short-lived app with cheap
+plans and the branch's image, and every later push only releases. Closing the pull
+request deletes it, and a preview nobody has pushed to within its TTL is removed.
+
+<p>
+  <img src="docs/screenshots/fauxroku/08-preview-app.png" alt="Fauxroku: a preview app for pull request 142" width="49%">
+  <img src="docs/screenshots/fauxcel/08-preview-pr142.png" alt="Fauxcel: a preview deployment" width="49%">
+</p>
+
+**Know when it breaks.** Every deploy, release, promotion and add-on change is a numbered
+run, and a failed one says why.
+
+<p>
+  <img src="docs/screenshots/fauxroku/11-crashed.png" alt="Fauxroku: a crashed app with its error" width="49%">
+  <img src="docs/screenshots/fauxcel/11-error.png" alt="Fauxcel: a failed deployment" width="49%">
+</p>
+
+<p>
+  <img src="docs/screenshots/fauxroku/10-building.png" alt="Fauxroku: an app building" width="49%">
+  <img src="docs/screenshots/fauxroku/12-activity.png" alt="Fauxroku: activity" width="49%">
+</p>
+
+**Your brand, not ours.** A skin sets the name, logo, layout, design tokens and copy, so
+"apps" can be "deployments" and "plans" can be "dyno types".
+
+<p>
+  <img src="docs/screenshots/fauxroku/01-sign-in.png" alt="Fauxroku sign in" width="49%">
+  <img src="docs/screenshots/fauxcel/01-sign-in.png" alt="Fauxcel sign in" width="49%">
+</p>
+
+<p>
+  <img src="docs/screenshots/fauxcel/02-deployments.png" alt="Fauxcel deployments in its light skin" width="49%">
+  <img src="docs/screenshots/fauxcel/13-deployment-dark.png" alt="Fauxcel deployment page in its dark skin" width="49%">
+</p>
+
+<p><img src="docs/screenshots/fauxcel/04-deployment-overview.png" alt="Fauxcel: deployment overview" width="49%"></p>
+
+## How it maps to Massdriver
+
+| Rocketsled | Massdriver |
+|---|---|
+| Platform layer (network, DNS, cluster) | One project, deployed once; its resources are granted to every runtime and pinned as environment defaults |
+| Runtime (Node.js, Functions, Static) | A `template` environment whose canvas holds every component an app of that kind could use |
+| App or environment | A fork of the template, with only the picked components deployed |
+| Plan | A preset from the bundle's `params.examples` |
+| Add-on | A component linked on the canvas and left undeployed until picked |
+| Release | The image param set on the app component, deploying only that instance |
+| Promotion | `copyInstance` plus the deployed bundle version, keeping the target's own fields |
+
+Each app's owner and choices are written on its Massdriver environment, so a server that
+loses its database still finds every app, and finishes any create a restart interrupted.
+
+## Configuring a PaaS
+
+A PaaS runs in tenant mode: Rocketsled serves templates that already exist in the
+operator's Massdriver organization. Nothing is installed and customers bring no cloud
+account. With `massdriver.account_mode: tenant`:
 
 - `skin` names a directory with `skin.json` (name, tagline, logo, layout, design
   tokens, copy) and optional CSS. The whole UI wears it.
@@ -79,10 +172,32 @@ no cloud account. With `massdriver.account_mode: tenant`:
   and removes apps after a `ttl`.
 - `auth.providers.open: {}` lets anyone sign up with a name. An `invite_code` gates it.
 
-Each app's owner and picks are written on its Massdriver environment, so a server
-that loses its database still shows people their apps and finishes creates it was
-interrupted in. See [massdriver-catalogs/aws examples/rocketsled](https://github.com/massdriver-catalogs/aws/tree/main/examples/rocketsled)
-for two PaaSes built this way.
+## Install mode
+
+Without a PaaS operator in the middle, Rocketsled can also be the "pick a platform" front
+door to Massdriver itself: someone signs in, chooses a catalog, connects their own cloud
+account, and gets production-shaped environments in a Massdriver organization they can
+take over whenever they outgrow the simple view.
+
+1. **Sign up.** A signup is a Massdriver organization. In `organization` mode Rocketsled
+   creates one (`rs-<adjective>-<noun>-<nn>`) with a user token that may create
+   organizations, then mints an admin service account in it and keeps that token,
+   encrypted, as the account's credential. In `shared` mode (development) every account
+   borrows one configured organization.
+2. **Install a catalog.** A catalog is a directory with `platforms/`, `resource-types/`,
+   `bundles/` and `bootstrap/`. Rocketsled shells out to the `mass` CLI to publish the
+   platforms, resource types and bundles into the account's organization, then runs
+   `tofu apply` on the bootstrap, which creates the project, its environments and the
+   links between components. The OpenTofu state is stored with the account so a retry
+   converges. This happens once per account.
+3. **Connect the cloud.** Each platform type the catalog lists (an AWS IAM role, say)
+   becomes a form generated from its JSON Schema, with the type's own instructions next
+   to it. The submitted credential is created as a resource in the organization and
+   pinned as an environment default on every environment.
+4. **Create environments.** An environment forks the bootstrapped base environment,
+   applies one preset per component (the bundle's own `params.examples`), pins the
+   credentials, and deploys. The environment page shows each component's status and the
+   addresses and names its resources expose.
 
 ## Run it
 
